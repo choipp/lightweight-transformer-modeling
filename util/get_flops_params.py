@@ -1,10 +1,12 @@
-
+import sys
+sys.path.append('/opt/ml/Naver_BoostCamp_NOTA')
 import os
 import json
 import torch
 import argparse
 from thop import profile
-from segformer import SegformerForSemanticSegmentation, SegformerConfig
+from mod_segformer import SegformerForSemanticSegmentation, SegformerConfig
+from torchsummaryX import summary as _summary
 
 def main(opt):
     dev = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -21,6 +23,8 @@ def main(opt):
             label2id=label2id, 
             ignore_mismatched_sizes=True)
     )
+    df = _summary(model, torch.randn(1, 3, 512, 512))
+    df.to_csv('module_output.csv')
     model = model.to(dev)
     input_vector = torch.randn(1, 3, 512, 512)
     macs, params = profile(model.cpu(), inputs= (input_vector,))
@@ -30,7 +34,7 @@ def main(opt):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', type=str, default="/dataset_path")
+    parser.add_argument('--data_dir', type=str, default="../dataset/ADEChallengeData2016")
     return parser.parse_args()
 
 if __name__ == "__main__":
