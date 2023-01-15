@@ -168,6 +168,8 @@ class SegformerEfficientSelfAttention(nn.Module):
         self.key = nn.Linear(self.hidden_size, self.all_head_size)
         self.value = nn.Linear(self.hidden_size, self.all_head_size)
 
+        self.mm_qk = nn.Linear(64, 256)
+        self.mm_v = nn.Linear(256, 64)
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
         self.sr_ratio = sequence_reduction_ratio
@@ -205,7 +207,8 @@ class SegformerEfficientSelfAttention(nn.Module):
         value_layer = self.transpose_for_scores(self.value(hidden_states))
 
         # Take the dot product between "query" and "key" to get the raw attention scores.
-        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
+        #attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
+        attention_scores = self.mm_qk(query_layer) # for calculating matmul FLOPs
 
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
 
@@ -216,7 +219,8 @@ class SegformerEfficientSelfAttention(nn.Module):
         # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
-        context_layer = torch.matmul(attention_probs, value_layer)
+        #context_layer = torch.matmul(attention_probs, value_layer)
+        context_layer = self.mm_v(attention_probs) # for calculating matmul FLOPs
 
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)

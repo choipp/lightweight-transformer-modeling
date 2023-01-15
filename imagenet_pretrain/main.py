@@ -19,7 +19,7 @@ from timm.scheduler import create_scheduler
 from timm.optim import create_optimizer
 from timm.utils import NativeScaler, get_state_dict, ModelEma
 sys.path.append('/opt/ml/Naver_BoostCamp_NOTA')
-from mod_segformer import SegformerForImageClassification, SegformerConfig
+from mod_segformer_2 import SegformerForImageClassification, SegformerConfig
 from datasets import build_dataset
 from engine import train_one_epoch, evaluate
 from losses import DistillationLoss

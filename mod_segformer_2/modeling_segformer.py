@@ -14,10 +14,11 @@
 # limitations under the License.
 """ PyTorch SegFormer model."""
 
-
+import abc
 import math
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple, Union, List
 
+import numpy as np
 import torch
 import torch.utils.checkpoint
 import torch.nn.functional as F
@@ -285,6 +286,169 @@ class SegformerAttention(nn.Module):
         return outputs
 
 
+
+def generate_fourier_features(pos, num_bands, max_resolution=(224, 224), concat_pos=False, sine_only=False):
+    """
+    Generate a Fourier frequency position encoding with linear spacing.
+    Args:
+      pos (`torch.LongTensor` of shape `(batch_size, sequence_length, dim)`):
+        The Tensor containing the position of n points in d dimensional space.
+      num_bands (`int`):
+        The number of frequency bands (K) to use.
+      max_resolution (`Tuple[int]`, *optional*, defaults to (224, 224)):
+        The maximum resolution (i.e. the number of pixels per dim). A tuple representing resolution for each dimension.
+      concat_pos (`bool`, *optional*, defaults to `True`):
+        Whether to concatenate the input position encoding to the Fourier features.
+      sine_only (`bool`, *optional*, defaults to `False`):
+        Whether to use a single phase (sin) or two (sin/cos) for each frequency band.
+    Returns:
+      `torch.FloatTensor` of shape `(batch_size, sequence_length, n_channels)`: The Fourier position embeddings. If
+      `concat_pos` is `True` and `sine_only` is `False`, output dimensions are ordered as: [dim_1, dim_2, ..., dim_d,
+      sin(pi*f_1*dim_1), ..., sin(pi*f_K*dim_1), ..., sin(pi*f_1*dim_d), ..., sin(pi*f_K*dim_d), cos(pi*f_1*dim_1),
+      ..., cos(pi*f_K*dim_1), ..., cos(pi*f_1*dim_d), ..., cos(pi*f_K*dim_d)], where dim_i is pos[:, i] and f_k is the
+      kth frequency band.
+    """
+
+    batch_size = pos.shape[0]
+
+    min_freq = 1.0
+    # Nyquist frequency at the target resolution:
+    freq_bands = torch.stack(
+        [torch.linspace(start=min_freq, end=res / 2, steps=num_bands) for res in max_resolution], dim=0
+    ).cuda(0)
+    # Get frequency bands for each spatial dimension.
+    # Output is size [n, d * num_bands]
+    #print(pos.is_cuda)
+    #print(freq_bands.is_cuda)
+    freq_bands = freq_bands.transpose(0, 1).cuda(0)
+    #print(freq_bands, pos.shape, freq_bands.shape)
+    per_pos_features = pos[0, :, :][:, :, None] * freq_bands[None, :, :]
+    per_pos_features = torch.reshape(per_pos_features, [-1, np.prod(per_pos_features.shape[1:])])
+
+    if sine_only:
+        # Output is size [n, d * num_bands]
+        per_pos_features = torch.sin(np.pi * (per_pos_features))
+    else:
+        # Output is size [n, 2 * d * num_bands]
+        per_pos_features = torch.cat(
+            [torch.sin(np.pi * per_pos_features), torch.cos(np.pi * per_pos_features)], dim=-1
+        )
+    # Concatenate the raw input positions.
+    #print(per_pos_features.shape)
+    if concat_pos:
+        # Adds d bands to the encoding.
+        per_pos_features = torch.cat([pos, per_pos_features.expand(batch_size, -1, -1)], dim=-1)
+    #print(per_pos_features.shape)
+    return per_pos_features
+
+def build_linear_positions(index_dims, output_range=(-1.0, 1.0)):
+    """
+    Generate an array of position indices for an N-D input array.
+    Args:
+      index_dims (`List[int]`):
+        The shape of the index dimensions of the input array.
+      output_range (`Tuple[float]`, *optional*, defaults to `(-1.0, 1.0)`):
+        The min and max values taken by each input index dimension.
+    Returns:
+      `torch.FloatTensor` of shape `(index_dims[0], index_dims[1], .., index_dims[-1], N)`.
+    """
+
+    def _linspace(n_xels_per_dim):
+        return torch.linspace(start=output_range[0], end=output_range[1], steps=n_xels_per_dim, dtype=torch.float32)
+
+    dim_ranges = [_linspace(n_xels_per_dim) for n_xels_per_dim in index_dims]
+    array_index_grid = torch.meshgrid(*dim_ranges, indexing="ij")
+
+    return torch.stack(array_index_grid, dim=-1)
+
+def _check_or_build_spatial_positions(pos, index_dims, batch_size):
+    """
+    Checks or builds spatial position features (x, y, ...).
+    Args:
+      pos (`torch.FloatTensor`):
+        None, or an array of position features. If None, position features are built. Otherwise, their size is checked.
+      index_dims (`List[int]`):
+        An iterable giving the spatial/index size of the data to be featurized.
+      batch_size (`int`):
+        The batch size of the data to be featurized.
+    Returns:
+        `torch.FloatTensor` of shape `(batch_size, prod(index_dims))` an array of position features.
+    """
+    if pos is None:
+        pos = build_linear_positions(index_dims)
+        # equivalent to `torch.broadcast_to(pos[None], (batch_size,) + pos.shape)`
+        # but `torch.broadcast_to` cannot be converted to ONNX
+        pos = pos[None].expand((batch_size,) + pos.shape)
+        pos = torch.reshape(pos, [batch_size, np.prod(index_dims), -1])
+    else:
+        # Just a warning label: you probably don't want your spatial features to
+        # have a different spatial layout than your pos coordinate system.
+        # But feel free to override if you think it'll work!
+        #print(pos.shape)
+        #print(index_dims)
+        #print(pos.shape[-1], len(index_dims))
+        #if pos.shape[-1] != len(index_dims):
+        #    raise ValueError("Spatial features have the wrong number of dimensions.")
+        pass
+    return pos
+
+class PerceiverAbstractPositionEncoding(nn.Module, metaclass=abc.ABCMeta):
+    """Perceiver abstract position encoding."""
+
+    @property
+    @abc.abstractmethod
+    def num_dimensions(self) -> int:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def output_size(self, *args, **kwargs) -> int:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def forward(self, batch_size, pos):
+        raise NotImplementedError
+
+class PerceiverFourierPositionEncoding(PerceiverAbstractPositionEncoding):
+    """Fourier (Sinusoidal) position encoding."""
+
+    def __init__(self, num_bands, max_resolution, concat_pos=False, sine_only=False):
+        super().__init__()
+        self.num_bands = num_bands
+        self.max_resolution = max_resolution
+        self.concat_pos = concat_pos
+        self.sine_only = sine_only
+
+    @property
+    def num_dimensions(self) -> int:
+        return len(self.max_resolution)
+
+    def output_size(self):
+        """Returns size of positional encodings last dimension."""
+        num_dims = len(self.max_resolution)
+        encoding_size = self.num_bands * num_dims
+        if not self.sine_only:
+            encoding_size *= 2
+        if self.concat_pos:
+            encoding_size += self.num_dimensions
+
+        return encoding_size
+
+    def forward(
+        self, index_dims: List[int], batch_size: int, pos: torch.FloatTensor = None
+    ) -> torch.FloatTensor:
+        pos = _check_or_build_spatial_positions(pos, index_dims, batch_size).cuda(0)
+        device = pos.device
+        fourier_pos_enc = generate_fourier_features(
+            pos,
+            num_bands=self.num_bands,
+            max_resolution=self.max_resolution,
+            concat_pos=self.concat_pos,
+            sine_only=self.sine_only,
+        ).to(device)
+        #print(fourier_pos_enc)
+        return fourier_pos_enc
+
+
 class SegformerDWConv(nn.Module):
     def __init__(self, dim=768):
         super().__init__()
@@ -292,17 +456,43 @@ class SegformerDWConv(nn.Module):
 
     def forward(self, hidden_states, height, width):
         batch_size, seq_len, num_channels = hidden_states.shape
+        #print(hidden_states.shape)
         hidden_states = hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width)
         hidden_states = self.dwconv(hidden_states)
         hidden_states = hidden_states.flatten(2).transpose(1, 2)
 
         return hidden_states
 
-class SegformerMixFFN(nn.Module):
-    def __init__(self, config, in_features, hidden_features=None, out_features=None):
+class TransposeConv(nn.Module):
+    def __init__(self, in_features, num_attention_heads=None):
         super().__init__()
+        self.num_attention_heads = num_attention_heads
+        self.wh_size = int(np.sqrt(in_features // self.num_attention_heads))
+        self.transconv = nn.ConvTranspose2d(num_attention_heads, num_attention_heads, self.wh_size, stride=2, padding=3, bias=True, groups=1)
+        #self.transconv = nn.ConvTranspose2d(num_attention_heads, num_attention_heads, self.wh_size // 2, stride=2, padding=1, bias=True, groups=1)
+        #self.transconv = nn.ConvTranspose2d(num_attention_heads, num_attention_heads, 2, stride=2, padding=0, bias=True, groups=1)
+    
+    def forward(self, hidden_states):
+        batch_size, seq_len, num_channels = hidden_states.shape
+        #print(hidden_states.shape)
+        hidden_states = hidden_states.view(seq_len * batch_size, self.num_attention_heads, self.wh_size, self.wh_size)
+        #print(hidden_states.shape)
+        hidden_states = self.transconv(hidden_states)
+        #print(hidden_states.shape)
+        hidden_states = hidden_states.flatten(1).view(batch_size, seq_len, -1)
+        #print(hidden_states.shape)
+        return hidden_states
+
+
+
+class SegformerMixFFN(nn.Module):
+    def __init__(self, config, in_features, hidden_features=None, out_features=None, num_attention_heads=None):
+        super().__init__()
+        self.hidden_features = hidden_features
+        self.out_features = out_features or in_features
         out_features = out_features or in_features
-        self.dense1 = nn.Linear(in_features, hidden_features)
+        #self.dense1 = nn.Linear(in_features, hidden_features)
+        self.transconv = TransposeConv(in_features, num_attention_heads)
         self.dwconv = SegformerDWConv(hidden_features)
         if isinstance(config.hidden_act, str):
             self.intermediate_act_fn = ACT2FN[config.hidden_act]
@@ -312,10 +502,23 @@ class SegformerMixFFN(nn.Module):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, hidden_states, height, width):
-        hidden_states = self.dense1(hidden_states)
+        
+        #hidden_states = self.dense1(hidden_states)
+
+        #pos_enc = PerceiverFourierPositionEncoding(num_channels, max_resolution=(height * 4096, width * 4096))
+        #batch_size = hidden_states.shape[0]
+        #index_dims = hidden_states.shape[1:-1]
+        #pos = hidden_states.transpose(1, 2)
+        #print(hidden_states.shape)
+        #hidden_states = pos_enc(index_dims, batch_size, hidden_states)
+        #hidden_states = torch.unsqueeze(hidden_states, dim=0).cuda(0)
+        #hidden_states = hidden_states.cuda(0)
+        #print(hidden_states.shape)
+        hidden_states = self.transconv(hidden_states)
         hidden_states = self.dwconv(hidden_states, height, width)
         hidden_states = self.intermediate_act_fn(hidden_states)
         hidden_states = self.dropout(hidden_states)
+        #hidden_states = hidden_states.cpu()
         hidden_states = self.dense2(hidden_states)
         hidden_states = self.dropout(hidden_states)
         return hidden_states
@@ -336,7 +539,7 @@ class SegformerLayer(nn.Module):
         self.drop_path = SegformerDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         self.layer_norm_2 = nn.LayerNorm(hidden_size)
         mlp_hidden_size = int(hidden_size * mlp_ratio)
-        self.mlp = SegformerMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
+        self.mlp = SegformerMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size, num_attention_heads=num_attention_heads)
 
     def forward(self, hidden_states, height, width, output_attentions=False):
         self_attention_outputs = self.attention(
@@ -424,6 +627,7 @@ class SegformerEncoder(nn.Module):
         all_self_attentions = () if output_attentions else None
 
         batch_size = pixel_values.shape[0]
+
 
         hidden_states = pixel_values
         for idx, x in enumerate(zip(self.patch_embeddings, self.block, self.layer_norm)):
