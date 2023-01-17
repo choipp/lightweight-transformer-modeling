@@ -1,6 +1,3 @@
-/dataset
-/mod_segformer
-
 __pycache__/
 result/
 .ipynb_checkpoints/
@@ -11,6 +8,4 @@ result/
 *.csv
 *.whl
 *.engine
-
-
-
+*.txt

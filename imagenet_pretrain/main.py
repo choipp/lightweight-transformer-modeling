@@ -18,7 +18,7 @@ from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
 from timm.scheduler import create_scheduler
 from timm.optim import create_optimizer
 from timm.utils import NativeScaler, get_state_dict, ModelEma
-sys.path.append('/root/Naver_BoostCamp_NOTA/')
+sys.path.append('/opt/ml/input/nota/')
 from segformer import SegformerForImageClassification, SegformerConfig
 from datasets import build_dataset
 from engine import train_one_epoch, evaluate
@@ -142,7 +142,7 @@ def get_args_parser():
     parser.add_argument('--finetune', default='', help='finetune from checkpoint')
 
     # Dataset parameters
-    parser.add_argument('--data-path', default='/datasets01/imagenet_full_size/061417/', type=str,
+    parser.add_argument('--data-path', default='/opt/ml/input/data/tiny-imagenet-200/', type=str,
                         help='dataset path')
     parser.add_argument('--data-set', default='IMNET', choices=['CIFAR', 'TINY', 'IMNET', 'INAT', 'INAT19'],
                         type=str, help='Image Net dataset path')
@@ -151,7 +151,7 @@ def get_args_parser():
                         choices=['kingdom', 'phylum', 'class', 'order', 'supercategory', 'family', 'genus', 'name'],
                         type=str, help='semantic granularity')
 
-    parser.add_argument('--output_dir', default='',
+    parser.add_argument('--output_dir', default='./exp01',
                         help='path where to save, empty for no saving')
     parser.add_argument('--device', default='cuda',
                         help='device to use for training / testing')
@@ -161,7 +161,7 @@ def get_args_parser():
                         help='start epoch')
     parser.add_argument('--eval', action='store_true', help='Perform evaluation only')
     parser.add_argument('--dist-eval', action='store_true', default=False, help='Enabling distributed evaluation')
-    parser.add_argument('--num_workers', default=10, type=int)
+    parser.add_argument('--num_workers', default=6, type=int)
     parser.add_argument('--pin-mem', action='store_true',
                         help='Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.')
     parser.add_argument('--no-pin-mem', action='store_false', dest='pin_mem',
@@ -346,6 +346,7 @@ def main(args):
     print(f"Start training for {args.epochs} epochs")
     start_time = time.time()
     max_accuracy = 0.0
+    best_epoch = 0
 
     for epoch in range(args.start_epoch, args.epochs):
         if args.fp32_resume and epoch > args.start_epoch + 1:
@@ -365,9 +366,15 @@ def main(args):
         )
         lr_scheduler.step(epoch)
         
-        if args.output_dir:
+        test_stats = evaluate(data_loader_val, model, device)
+        print(f"Accuracy of the network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%")
+        max_accuracy = max(max_accuracy, test_stats["acc1"])
+        print(f'Max accuracy: {max_accuracy:.2f}%')
+        
+        if args.output_dir and max_accuracy == test_stats["acc1"]:
             # model.module.save_pretrained(os.path.join(args.output_dir, str(epoch)))
-            checkpoint_paths = [output_dir / 'checkpoint{}.pth'.format(str(epoch))]
+            checkpoint_paths = [output_dir / 'best_checkpoint.pth'] # 'checkpoint{}.pth'.format(str(epoch))
+            best_epoch = epoch
             for checkpoint_path in checkpoint_paths:
                 utils.save_on_master({
                     'model': model_without_ddp.state_dict(),
@@ -378,11 +385,6 @@ def main(args):
                     'scaler': loss_scaler.state_dict(),
                     'args': args,
                 }, checkpoint_path)
-                
-        test_stats = evaluate(data_loader_val, model, device)
-        print(f"Accuracy of the network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%")
-        max_accuracy = max(max_accuracy, test_stats["acc1"])
-        print(f'Max accuracy: {max_accuracy:.2f}%')
 
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                      **{f'test_{k}': v for k, v in test_stats.items()},
@@ -396,6 +398,15 @@ def main(args):
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print('Training time {}'.format(total_time_str))
+    with (output_dir / "log.txt").open("a") as f:
+        f.write(f'Max accuracy: {max_accuracy:.2f}% / epoch: {best_epoch}' + "\n")
+        f.write(f'Training time {total_time_str}' + "\n")
+    
+def args_to_log(args):
+    output_dir = Path(args.output_dir)
+    if args.output_dir:
+        with (output_dir / "log.txt").open("a") as f:
+            f.write(json.dumps(args.__dict__, indent=4) + "\n")
 
 
 if __name__ == '__main__':
@@ -404,4 +415,5 @@ if __name__ == '__main__':
     # args = utils.update_from_config(args)
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+    args_to_log(args)
     main(args)

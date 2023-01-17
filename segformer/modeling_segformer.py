@@ -176,6 +176,10 @@ class SegformerEfficientSelfAttention(nn.Module):
                 hidden_size, hidden_size, kernel_size=sequence_reduction_ratio, stride=sequence_reduction_ratio
             )
             self.layer_norm = nn.LayerNorm(hidden_size)
+        # for matmul calc
+        # self.mm_qk = nn.Linear(64, 256)
+        # self.mm_v = nn.Linear(256, 64)    
+        
 
     def transpose_for_scores(self, hidden_states):
         new_shape = hidden_states.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
@@ -206,6 +210,8 @@ class SegformerEfficientSelfAttention(nn.Module):
 
         # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
+        # for calc
+        # attention_scores = self.mm_qk(query_layer)
 
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
 
@@ -217,6 +223,8 @@ class SegformerEfficientSelfAttention(nn.Module):
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
+        # for calc
+        # context_layer = self.mm_v(attention_probs)
 
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
@@ -289,6 +297,20 @@ class SegformerDWConv(nn.Module):
         hidden_states = hidden_states.flatten(2).transpose(1, 2)
 
         return hidden_states
+    
+
+class CustomSegformerDWConv(nn.Module):
+    def __init__(self, dim=768):
+        super().__init__()
+        self.pwconv = nn.Conv2d(dim, dim, 3, 1, 1, bias=True, groups=dim)
+
+    def forward(self, hidden_states, height, width):
+        batch_size, seq_len, num_channels = hidden_states.shape
+        hidden_states_ = hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width)
+        hidden_states_ = self.pwconv(hidden_states_)
+        hidden_states_out = hidden_states_.flatten(2).transpose(1, 2) + hidden_states
+
+        return hidden_states_out
 
 
 class SegformerMixFFN(nn.Module):
@@ -695,22 +717,25 @@ class SegformerDecodeHead(SegformerPreTrainedModel):
         self.linear_fuse = nn.Conv2d(
             in_channels=config.decoder_hidden_size * config.num_encoder_blocks,
             out_channels=config.decoder_hidden_size,
-            kernel_size=1,
+            kernel_size=1, # 3
+            # padding=1,
+            # groups=config.decoder_hidden_size,
             bias=False,
         )
+        # self.weights = [nn.parameter.Parameter(torch.ones(1)) for _ in range(4)]
         self.batch_norm = nn.BatchNorm2d(config.decoder_hidden_size)
         self.activation = nn.ReLU()
 
         self.dropout = nn.Dropout(config.classifier_dropout_prob)
         self.classifier = nn.Conv2d(config.decoder_hidden_size, config.num_labels, kernel_size=1)
-
+        
         self.config = config
 
     def forward(self, encoder_hidden_states):
         batch_size = encoder_hidden_states[-1].shape[0]
 
         all_hidden_states = ()
-        for encoder_hidden_state, mlp in zip(encoder_hidden_states, self.linear_c):
+        for idx, (encoder_hidden_state, mlp) in enumerate(zip(encoder_hidden_states, self.linear_c)):
             if self.config.reshape_last_stage is False and encoder_hidden_state.ndim == 3:
                 height = width = int(math.sqrt(encoder_hidden_state.shape[-1]))
                 encoder_hidden_state = (
@@ -722,10 +747,12 @@ class SegformerDecodeHead(SegformerPreTrainedModel):
             encoder_hidden_state = mlp(encoder_hidden_state)
             encoder_hidden_state = encoder_hidden_state.permute(0, 2, 1)
             encoder_hidden_state = encoder_hidden_state.reshape(batch_size, -1, height, width)
+            
             # upsample
             encoder_hidden_state = nn.functional.interpolate(
                 encoder_hidden_state, size=encoder_hidden_states[0].size()[2:], mode="bilinear", align_corners=False
             )
+            # encoder_hidden_state = torch.mul(self.weights[idx], encoder_hidden_state)
             all_hidden_states += (encoder_hidden_state,)
 
         hidden_states = self.linear_fuse(torch.cat(all_hidden_states[::-1], dim=1))
