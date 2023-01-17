@@ -1,5 +1,6 @@
 __pycache__/
 result/
+mod_segformer/
 .ipynb_checkpoints/
 *.ipynb
 *.pt
