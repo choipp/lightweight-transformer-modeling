@@ -160,9 +160,9 @@ class SegformerEfficientSelfAttention(nn.Module):
                 f"The hidden size ({self.hidden_size}) is not a multiple of the number of attention "
                 f"heads ({self.num_attention_heads})"
             )
-        # hidden_size: [64, 128, 320, 512]
-        self.attention_head_size = int(self.hidden_size / self.num_attention_heads) # 64
-        self.all_head_size = self.num_attention_heads * self.attention_head_size # 64 * [1, 2, 5, 8]
+
+        self.attention_head_size = int(self.hidden_size / self.num_attention_heads)
+        self.all_head_size = self.num_attention_heads * self.attention_head_size
 
         self.query = nn.Linear(self.hidden_size, self.all_head_size)
         self.key = nn.Linear(self.hidden_size, self.all_head_size)
@@ -171,7 +171,6 @@ class SegformerEfficientSelfAttention(nn.Module):
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
         self.sr_ratio = sequence_reduction_ratio
-        # [8, 4, 2, 1]
         if sequence_reduction_ratio > 1:
             self.sr = nn.Conv2d(
                 hidden_size, hidden_size, kernel_size=sequence_reduction_ratio, stride=sequence_reduction_ratio
@@ -179,8 +178,7 @@ class SegformerEfficientSelfAttention(nn.Module):
             self.layer_norm = nn.LayerNorm(hidden_size)
 
     def transpose_for_scores(self, hidden_states):
-        # new_shape = [1, 16384, 1, 64]
-        new_shape = hidden_states.size()[:-1] + (self.num_attention_heads, self.attention_head_size) # [1, 16384] + (1, 64)
+        new_shape = hidden_states.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
         hidden_states = hidden_states.view(new_shape)
         return hidden_states.permute(0, 2, 1, 3)
 
@@ -191,28 +189,26 @@ class SegformerEfficientSelfAttention(nn.Module):
         width,
         output_attentions=False,
     ):
-        # hidden_states = [1, 16384, 64]
-        query_layer = self.transpose_for_scores(self.query(hidden_states)) # 1, 1, 16384, 64
+        query_layer = self.transpose_for_scores(self.query(hidden_states))
 
         if self.sr_ratio > 1:
-            batch_size, seq_len, num_channels = hidden_states.shape # num_channels = 64
+            batch_size, seq_len, num_channels = hidden_states.shape
             # Reshape to (batch_size, num_channels, height, width)
             hidden_states = hidden_states.permute(0, 2, 1).reshape(batch_size, num_channels, height, width)
-            # hidden_states.permute(0, 2, 1): [1, 64, 16384] => [1, 64, 128, 128]
             # Apply sequence reduction
-            hidden_states = self.sr(hidden_states) # [1, 64, 16, 16]
+            hidden_states = self.sr(hidden_states)
             # Reshape back to (batch_size, seq_len, num_channels)
             hidden_states = hidden_states.reshape(batch_size, num_channels, -1).permute(0, 2, 1)
             hidden_states = self.layer_norm(hidden_states)
 
-        key_layer = self.transpose_for_scores(self.key(hidden_states)) # 1, 1, 256, 64
-        value_layer = self.transpose_for_scores(self.value(hidden_states)) # 1, 1, 256, 64
+        key_layer = self.transpose_for_scores(self.key(hidden_states))
+        value_layer = self.transpose_for_scores(self.value(hidden_states))
 
         # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
-        # [1, 1, 16384, 256]
+
         # Normalize the attention scores to probabilities.
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
@@ -696,22 +692,11 @@ class SegformerDecodeHead(SegformerPreTrainedModel):
         self.linear_c = nn.ModuleList(mlps)
 
         # the following 3 layers implement the ConvModule of the original implementation
-        # self.linear_fuse = nn.Conv2d(
-        #     in_channels=config.decoder_hidden_size * config.num_encoder_blocks,
-        #     out_channels=config.decoder_hidden_size,
-        #     kernel_size=1,
-        #     bias=False,
-        # )
-        
-        # mod_linear_fuse
-        # the following 3 layers implement the ConvModule of the original implementation
         self.linear_fuse = nn.Conv2d(
             in_channels=config.decoder_hidden_size * config.num_encoder_blocks,
             out_channels=config.decoder_hidden_size,
-            kernel_size=3,
-            padding=1,
+            kernel_size=1,
             bias=False,
-            groups=config.decoder_hidden_size
         )
         self.batch_norm = nn.BatchNorm2d(config.decoder_hidden_size)
         self.activation = nn.ReLU()

@@ -13,8 +13,7 @@ from pathlib import Path
 from util.logger import set_logger
 from util.data import generate_loader
 from util.utils import label_accuracy_score, add_hist
-# from segformer import SegformerForSemanticSegmentation, SegformerConfig
-from segformer_mobilevit import SegformerForSemanticSegmentation, SegformerConfig
+from custom import SegformerForSemanticSegmentation, SegformerConfig
 from transformers.optimization import get_polynomial_decay_schedule_with_warmup
 
 
@@ -99,11 +98,9 @@ def main(opt):
     if os.path.splitext(opt.pretrain)[-1] == '.pth':
         logging.info("fine-tuning .pth")
         pt = torch.load(opt.pretrain, map_location='cpu')
-        # torch.save(pt['model'], opt.pretrain)
-        dst = opt.pretrain.replace('.pth', '_state_dict.pth')
-        torch.save(pt['model'], dst)
+        torch.save(pt['model'], opt.pretrain)
         model = SegformerForSemanticSegmentation.from_pretrained(
-            opt.pretrain, 
+            dst,
             config=SegformerConfig(
                 num_labels=len(id2label), 
                 id2label=id2label, 

@@ -1,4 +1,5 @@
 
+import sys
 import os
 import json
 import torch
@@ -13,6 +14,7 @@ from time import time, localtime
 
 
 def main(opt):
+    
     dev = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     with open(os.path.join(opt.data_dir, 'id2label.json'), 'r') as f:
         id2label = json.load(f)
@@ -40,6 +42,7 @@ def main(opt):
     df = summary(model, torch.randn(1, 3, 512, 512))
     df.to_csv('module_output.csv')
     model = model.to(dev)
+    # thop
     input_vector = torch.randn(1, 3, 512, 512)
     
     #profile
@@ -49,9 +52,9 @@ def main(opt):
     print('FLOPs: %.3fG\tParams: %.3fM' % (macs / 1e9, params / 1e6), flush=True)
     
     # ptflops
-    prev_time = time()
     if os.path.isfile('module_output.txt'):
         os.remove('module_output.txt')
+    prev_time = time()
     macs, params = get_model_complexity_info(model, (3, 512, 512), as_strings=True,
                                            print_per_layer_stat=True, verbose=True)
     print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
