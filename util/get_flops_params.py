@@ -13,7 +13,7 @@ from time import time, localtime
 
 
 def main(opt):
-    prev_time = time()
+    
     dev = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     with open(os.path.join(opt.data_dir, 'id2label.json'), 'r') as f:
         id2label = json.load(f)
@@ -50,6 +50,7 @@ def main(opt):
     # ptflops
     if os.path.isfile('module_output.txt'):
         os.remove('module_output.txt')
+    prev_time = time()
     macs, params = get_model_complexity_info(model, (3, 512, 512), as_strings=True,
                                            print_per_layer_stat=True, verbose=True)
     print('{:<30}  {:<8}'.format('Computational complexity: ', macs))

@@ -77,11 +77,6 @@ def validate(model, val_loader, num_labels, category_names, dev=None):
     epoch_loss = valid_running_loss / counter
     return epoch_loss, epoch_miou, epoch_miou_by_class
 
-# def args_to_log(args):
-#     output_dir = Path(args.save_path)
-#     if args.save_path:
-#         with (output_dir / "log_ft.txt").open("a") as f:
-#             f.write(json.dumps(args.__dict__, indent=4) + "\n")
 
 def main(opt):
     
@@ -93,21 +88,21 @@ def main(opt):
     id2label = {int(k): v for k, v in id2label.items()}
     label2id = {v: k for k, v in id2label.items()}
         
-    # .pth file version
+    # dir version
     if os.path.splitext(opt.pretrain)[-1] == '.pth':
         logging.info("fine-tuning .pth")
         pt = torch.load(opt.pretrain, map_location='cpu')
-        # dst = opt.pretrain.replace('.pth', '_state_dict.pth')
-        torch.save(pt['model'], pt)
+        dst = opt.pretrain.replace('.pth', '_state_dict.pth')
+        torch.save(pt['model'], dst)
         model = SegformerForSemanticSegmentation.from_pretrained(
-            pt, 
+            dst,
             config=SegformerConfig(
                 num_labels=len(id2label), 
                 id2label=id2label, 
                 label2id=label2id, 
                 ignore_mismatched_sizes=True)
         )
-    # dir version
+    # .pth file version
     else:
         logging.info("fine-tuning dir")
         model = SegformerForSemanticSegmentation.from_pretrained(
@@ -164,12 +159,14 @@ def main(opt):
     logging.info(f"{total_trainable_params:,} training parameters.")
     
     best_val_miou = 0.0
+    best_epoch = 0
     train_loss, val_loss = [], []
     train_miou, val_miou = [], []
     elapsed_time = []
     time_one_epoch_start = None
     time_one_epoch_end = None
     elapsed_time_one_epoch = None
+    start_time = time.time()
     for epoch in range(epochs):
         logging.info(f"Epoch {epoch+1} of {epochs}")
         time_one_epoch_start = time.time()
@@ -193,9 +190,22 @@ def main(opt):
         
         if best_val_miou < val_epoch_miou:
             best_val_miou = val_epoch_miou
+            best_epoch = epoch+1
             model.module.save_pretrained(os.path.join(opt.save_path, 'best'))
+            
+        log_stats = {'epoch': epoch+1,
+                     'train_loss': train_epoch_loss,
+                     'train_miou': train_epoch_miou,
+                     'val_loss': val_epoch_loss,
+                     'val_miou': val_epoch_miou,}
+        with open(os.path.join(opt.save_path, 'log.txt'), 'a') as f:
+            f.write(json.dumps(log_stats) + "\n")
         time.sleep(5)
         
+    total_time = time.time() - start_time
+    with open(os.path.join(opt.save_path, 'log.txt'), 'a') as f:
+        f.write(f'Best validation mIoU: {best_val_miou:.3f}% / epoch: {best_epoch}' + "\n")
+        f.write(f'Total time {total_time}' + "\n")
     model.module.save_pretrained(os.path.join(opt.save_path, 'final'))
     logging.info('TRAINING COMPLETE!')
     
@@ -233,5 +243,5 @@ if __name__ == "__main__":
     set_logger("segformer", opt.log_level)
     logging = logging.getLogger("segformer")
     logging.propagate = False
-    # args_to_log(opt)
+    
     main(opt)
