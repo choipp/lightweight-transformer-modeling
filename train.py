@@ -157,12 +157,14 @@ def main(opt):
     logging.info(f"{total_trainable_params:,} training parameters.")
     
     best_val_miou = 0.0
+    best_epoch = 0
     train_loss, val_loss = [], []
     train_miou, val_miou = [], []
     elapsed_time = []
     time_one_epoch_start = None
     time_one_epoch_end = None
     elapsed_time_one_epoch = None
+    start_time = time.time()
     for epoch in range(epochs):
         logging.info(f"Epoch {epoch+1} of {epochs}")
         time_one_epoch_start = time.time()
@@ -186,9 +188,22 @@ def main(opt):
         
         if best_val_miou < val_epoch_miou:
             best_val_miou = val_epoch_miou
+            best_epoch = epoch+1
             model.module.save_pretrained(os.path.join(opt.save_path, 'best'))
+            
+        log_stats = {'epoch': epoch+1,
+                     'train_loss': train_epoch_loss,
+                     'train_miou': train_epoch_miou,
+                     'val_loss': val_epoch_loss,
+                     'val_miou': val_epoch_miou,}
+        with open(os.path.join(opt.save_path, 'log.txt'), 'a') as f:
+            f.write(json.dumps(log_stats) + "\n")
         time.sleep(5)
         
+    total_time = time.time() - start_time
+    with open(os.path.join(opt.save_path, 'log.txt'), 'a') as f:
+        f.write(f'Best validation mIoU: {best_val_miou:.3f}% / epoch: {best_epoch}' + "\n")
+        f.write(f'Total time {total_time}' + "\n")
     model.module.save_pretrained(os.path.join(opt.save_path, 'final'))
     logging.info('TRAINING COMPLETE!')
     
