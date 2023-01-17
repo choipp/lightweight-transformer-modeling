@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from util.data import generate_loader
 from util.utils import label_accuracy_score, add_hist
-from segformer import SegformerForSemanticSegmentation
+from mod_segformer import SegformerForSemanticSegmentation
 import argparse
 
 def parse_args():

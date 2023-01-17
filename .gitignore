@@ -1,3 +1,5 @@
+dataset_path/
+
 __pycache__/
 result/
 .ipynb_checkpoints/
@@ -9,5 +11,5 @@ result/
 *.whl
 *.engine
 
-
-
+*.pth
+*.txt

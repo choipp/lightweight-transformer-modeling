@@ -8,10 +8,12 @@ import numpy as np
 from torch import nn
 from tqdm.auto import tqdm
 
+from pathlib import Path
+
 from util.logger import set_logger
 from util.data import generate_loader
 from util.utils import label_accuracy_score, add_hist
-from segformer import SegformerForSemanticSegmentation, SegformerConfig
+from mod_segformer import SegformerForSemanticSegmentation, SegformerConfig
 from transformers.optimization import get_polynomial_decay_schedule_with_warmup
 
 
@@ -75,6 +77,11 @@ def validate(model, val_loader, num_labels, category_names, dev=None):
     epoch_loss = valid_running_loss / counter
     return epoch_loss, epoch_miou, epoch_miou_by_class
 
+# def args_to_log(args):
+#     output_dir = Path(args.save_path)
+#     if args.save_path:
+#         with (output_dir / "log_ft.txt").open("a") as f:
+#             f.write(json.dumps(args.__dict__, indent=4) + "\n")
 
 def main(opt):
     
@@ -90,9 +97,10 @@ def main(opt):
     if os.path.splitext(opt.pretrain)[-1] == '.pth':
         logging.info("fine-tuning .pth")
         pt = torch.load(opt.pretrain, map_location='cpu')
-        torch.save(pt['model'], opt.pretrain)
+        # dst = opt.pretrain.replace('.pth', '_state_dict.pth')
+        torch.save(pt['model'], pt)
         model = SegformerForSemanticSegmentation.from_pretrained(
-            opt.pretrain, 
+            pt, 
             config=SegformerConfig(
                 num_labels=len(id2label), 
                 id2label=id2label, 
@@ -194,17 +202,17 @@ def main(opt):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--device', type=str, default='0,1', help='Select gpu to use')
+    parser.add_argument('--device', type=str, default='0', help='Select gpu to use')
     parser.add_argument('--lr', type=float, default=6e-5) # do not modify
-    parser.add_argument('--pretrain', type=str, default='nvidia/mit-b2')
-    parser.add_argument('--save_path', type=str, default='result/')
-    parser.add_argument('--num_workers', type=int, default=4) 
+    parser.add_argument('--pretrain', type=str, default='/opt/ml/input/Naver_BoostCamp_NOTA/checkpoint298.pth')
+    parser.add_argument('--save_path', type=str, default='/opt/ml/input/Naver_BoostCamp_NOTA/result/mod_segformer')
+    parser.add_argument('--num_workers', type=int, default=6) 
     parser.add_argument('--seed', type=int, default=1) # do not modify
-    parser.add_argument('--batch_size', type=int, default=16) 
+    parser.add_argument('--batch_size', type=int, default=8) 
     parser.add_argument('--epochs', type=int, default=60) # do not modify
     parser.add_argument('--warmup_steps', type=int, default=1500) # do not modify
     parser.add_argument('--weight_decay', type=float, default=0.01) # do not modify      
-    parser.add_argument('--data_dir', type=str, default="/dataset_path") 
+    parser.add_argument('--data_dir', type=str, default="/opt/ml/input/Naver_BoostCamp_NOTA/dataset_path/ADEChallengeData2016") 
     parser.add_argument(
         '--log-level', type=str, choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
         dest='log_level', default='INFO',
@@ -225,5 +233,5 @@ if __name__ == "__main__":
     set_logger("segformer", opt.log_level)
     logging = logging.getLogger("segformer")
     logging.propagate = False
-    
+    # args_to_log(opt)
     main(opt)
