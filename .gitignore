@@ -14,3 +14,9 @@ result/
 
 
 
+mod_segformer/
+imagenet_pretrain/result/
+*.pth
+*.txt
+pretrain/
+result/

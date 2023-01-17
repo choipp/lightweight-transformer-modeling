@@ -11,8 +11,8 @@ import argparse
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--gpu", type=int, default=0)
-    parser.add_argument("--data_dir", type=str,  default='/dataset_path')
-    parser.add_argument('--pretrain', type=str, default='nvidia/segformer-b2-finetuned-ade-512-512')
+    parser.add_argument("--data_dir", type=str,  default='/opt/ml/input/data/ADEChallengeData2016')
+    parser.add_argument('--pretrain', type=str, default='/opt/ml/input/Naver_BoostCamp_NOTA/result/baseline/best')
     return parser.parse_args()
 
 

@@ -18,8 +18,9 @@ from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
 from timm.scheduler import create_scheduler
 from timm.optim import create_optimizer
 from timm.utils import NativeScaler, get_state_dict, ModelEma
-sys.path.append('/root/Naver_BoostCamp_NOTA/')
+sys.path.append('/opt/ml/input/Naver_BoostCamp_NOTA/')
 from segformer import SegformerForImageClassification, SegformerConfig
+# from segformer_mobilevit import SegformerForImageClassification, SegformerConfig
 from datasets import build_dataset
 from engine import train_one_epoch, evaluate
 from losses import DistillationLoss
@@ -161,7 +162,7 @@ def get_args_parser():
                         help='start epoch')
     parser.add_argument('--eval', action='store_true', help='Perform evaluation only')
     parser.add_argument('--dist-eval', action='store_true', default=False, help='Enabling distributed evaluation')
-    parser.add_argument('--num_workers', default=10, type=int)
+    parser.add_argument('--num_workers', default=6, type=int)
     parser.add_argument('--pin-mem', action='store_true',
                         help='Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.')
     parser.add_argument('--no-pin-mem', action='store_false', dest='pin_mem',
@@ -173,6 +174,12 @@ def get_args_parser():
                         help='number of distributed processes')
     parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
     return parser
+
+def args_to_log(args):
+    output_dir = Path(args.output_dir)
+    if args.output_dir:
+        with (output_dir / "log.txt").open("a") as f:
+            f.write(json.dumps(args.__dict__, indent=4) + "\n")
 
 
 def main(args):
@@ -365,9 +372,14 @@ def main(args):
         )
         lr_scheduler.step(epoch)
         
-        if args.output_dir:
+        test_stats = evaluate(data_loader_val, model, device)
+        print(f"Accuracy of the network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%")
+        max_accuracy = max(max_accuracy, test_stats["acc1"])
+        print(f'Max accuracy: {max_accuracy:.2f}%')
+        
+        if args.output_dir and max_accuracy == test_stats['acc1']:
             # model.module.save_pretrained(os.path.join(args.output_dir, str(epoch)))
-            checkpoint_paths = [output_dir / 'checkpoint{}.pth'.format(str(epoch))]
+            checkpoint_paths = [output_dir / 'best_checkpoint{}.pth'.format(str(epoch))]
             for checkpoint_path in checkpoint_paths:
                 utils.save_on_master({
                     'model': model_without_ddp.state_dict(),
@@ -379,10 +391,6 @@ def main(args):
                     'args': args,
                 }, checkpoint_path)
                 
-        test_stats = evaluate(data_loader_val, model, device)
-        print(f"Accuracy of the network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%")
-        max_accuracy = max(max_accuracy, test_stats["acc1"])
-        print(f'Max accuracy: {max_accuracy:.2f}%')
 
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                      **{f'test_{k}': v for k, v in test_stats.items()},
@@ -405,3 +413,5 @@ if __name__ == '__main__':
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     main(args)
+    # print(args)
+    # print(sys.path)

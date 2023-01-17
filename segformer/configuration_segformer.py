@@ -114,6 +114,7 @@ class SegformerConfig(PretrainedConfig):
         num_attention_heads=[1, 2, 5, 8],
         mlp_ratios=[4, 4, 4, 4],
         hidden_act="gelu",
+        # hidden_act="relu6",
         hidden_dropout_prob=0.0,
         attention_probs_dropout_prob=0.0,
         classifier_dropout_prob=0.1,
