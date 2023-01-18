@@ -194,6 +194,7 @@ def main(opt):
         log_stats = {'epoch': epoch+1,
                      'train_loss': train_epoch_loss,
                      'train_miou': train_epoch_miou,
+                     'train_lr': train_epoch_lr,
                      'val_loss': val_epoch_loss,
                      'val_miou': val_epoch_miou,}
         with open(os.path.join(opt.save_path, 'log.txt'), 'a') as f:
