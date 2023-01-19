@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import datetime
 import torch
 import logging
 import argparse
@@ -141,6 +142,7 @@ def main(opt):
             num_training_steps=int(len(train_loader) * epochs),
             lr_end=0.0,
             power=1,
+            
         )
     logging.info(f"Number of training images: {len(train_loader.dataset)}")
     logging.info(f"Number of validation images: {len(val_loader.dataset)}")
@@ -202,9 +204,10 @@ def main(opt):
         time.sleep(5)
         
     total_time = time.time() - start_time
+    total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     with open(os.path.join(opt.save_path, 'log.txt'), 'a') as f:
         f.write(f'Best validation mIoU: {best_val_miou:.3f}% / epoch: {best_epoch}' + "\n")
-        f.write(f'Total time {total_time}' + "\n")
+        f.write(f'Training time {total_time_str}' + "\n")
     model.module.save_pretrained(os.path.join(opt.save_path, 'final'))
     logging.info('TRAINING COMPLETE!')
     
