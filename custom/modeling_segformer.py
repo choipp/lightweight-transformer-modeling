@@ -221,22 +221,24 @@ class SegformerEfficientSelfAttention(nn.Module):
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
         context_layer = context_layer.view(new_context_layer_shape)
-
-        outputs = (context_layer, attention_probs) if output_attentions else (context_layer,)
-
+        
+        # nodense change1
+        #outputs = (context_layer, attention_probs) if output_attentions else (context_layer,)
+        outputs = (context_layer, )
+        
         return outputs
 
-
-class SegformerSelfOutput(nn.Module):
-    def __init__(self, config, hidden_size):
-        super().__init__()
-        self.dense = nn.Linear(hidden_size, hidden_size)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
-
-    def forward(self, hidden_states, input_tensor):
-        hidden_states = self.dense(hidden_states)
-        hidden_states = self.dropout(hidden_states)
-        return hidden_states
+# nodense change2
+#class SegformerSelfOutput(nn.Module):
+#    def __init__(self, config, hidden_size):
+#        super().__init__()
+#        self.dense = nn.Linear(hidden_size, hidden_size)
+#        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+#
+#    def forward(self, hidden_states, input_tensor):
+#        hidden_states = self.dense(hidden_states)
+#        hidden_states = self.dropout(hidden_states)
+#        return hidden_states
 
 
 class SegformerAttention(nn.Module):
@@ -248,7 +250,8 @@ class SegformerAttention(nn.Module):
             num_attention_heads=num_attention_heads,
             sequence_reduction_ratio=sequence_reduction_ratio,
         )
-        self.output = SegformerSelfOutput(config, hidden_size=hidden_size)
+        # nodense change3
+        #self.output = SegformerSelfOutput(config, hidden_size=hidden_size)
         self.pruned_heads = set()
 
     def prune_heads(self, heads):
@@ -272,8 +275,10 @@ class SegformerAttention(nn.Module):
     def forward(self, hidden_states, height, width, output_attentions=False):
         self_outputs = self.self(hidden_states, height, width, output_attentions)
 
-        attention_output = self.output(self_outputs[0], hidden_states)
-        outputs = (attention_output,) + self_outputs[1:]  # add attentions if we output them
+        # nodense change4
+        #attention_output = self.output(self_outputs[0], hidden_states)
+        #outputs = (attention_output,) + self_outputs[1:]  # add attentions if we output them
+        outputs = self_outputs
         return outputs
 
 
