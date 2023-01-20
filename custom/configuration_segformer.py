@@ -106,7 +106,7 @@ class SegformerConfig(PretrainedConfig):
         self,
         num_channels=3,
         num_encoder_blocks=4,
-        depths=[3, 4, 6, 3],
+        depths=[2, 2, 4, 2],
         sr_ratios=[8, 4, 2, 1],
         hidden_sizes=[64, 128, 320, 512],
         patch_sizes=[7, 3, 3, 3],
