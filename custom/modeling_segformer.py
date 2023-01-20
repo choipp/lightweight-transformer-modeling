@@ -164,10 +164,11 @@ class SegformerEfficientSelfAttention(nn.Module):
         self.attention_head_size = int(self.hidden_size / self.num_attention_heads)
         self.all_head_size = self.num_attention_heads * self.attention_head_size
 
-        self.query = nn.Linear(self.hidden_size, self.all_head_size)
+        #mobileViTV2
+        self.query = nn.Linear(self.hidden_size, 1)
         self.key = nn.Linear(self.hidden_size, self.all_head_size)
         self.value = nn.Linear(self.hidden_size, self.all_head_size)
-
+        self.relu = nn.ReLU()
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
         self.sr_ratio = sequence_reduction_ratio
@@ -177,11 +178,7 @@ class SegformerEfficientSelfAttention(nn.Module):
             )
             self.layer_norm = nn.LayerNorm(hidden_size)
 
-    def transpose_for_scores(self, hidden_states):
-        new_shape = hidden_states.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
-        hidden_states = hidden_states.view(new_shape)
-        return hidden_states.permute(0, 2, 1, 3)
-
+        
     def forward(
         self,
         hidden_states,
@@ -189,8 +186,9 @@ class SegformerEfficientSelfAttention(nn.Module):
         width,
         output_attentions=False,
     ):
-        query_layer = self.transpose_for_scores(self.query(hidden_states))
-
+        #query_layer = self.transpose_for_scores(self.query(hidden_states))
+        
+        value_layer = self.relu(self.value(hidden_states))
         if self.sr_ratio > 1:
             batch_size, seq_len, num_channels = hidden_states.shape
             # Reshape to (batch_size, num_channels, height, width)
@@ -200,29 +198,26 @@ class SegformerEfficientSelfAttention(nn.Module):
             # Reshape back to (batch_size, seq_len, num_channels)
             hidden_states = hidden_states.reshape(batch_size, num_channels, -1).permute(0, 2, 1)
             hidden_states = self.layer_norm(hidden_states)
-
-        key_layer = self.transpose_for_scores(self.key(hidden_states))
-        value_layer = self.transpose_for_scores(self.value(hidden_states))
+        query_layer = self.query(hidden_states)
+        query_layer = nn.functional.softmax(query_layer, dim=-1)
+        key_layer = self.key(hidden_states)
 
         # Take the dot product between "query" and "key" to get the raw attention scores.
-        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
+        attention_scores = torch.matmul(query_layer.transpose(-1, -2), key_layer)
+        
+        #attention_scores = attention_scores / math.sqrt(self.attention_head_size)
 
-        attention_scores = attention_scores / math.sqrt(self.attention_head_size)
-
-        # Normalize the attention scores to probabilities.
-        attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
         # This is actually dropping out entire tokens to attend to, which might
         # seem a bit unusual, but is taken from the original Transformer paper.
-        attention_probs = self.dropout(attention_probs)
+        #attention_probs = self.dropout(attention_probs)
 
-        context_layer = torch.matmul(attention_probs, value_layer)
+        context_layer = attention_scores * value_layer
+        #context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
+        #new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
+        #context_layer = context_layer.view(new_context_layer_shape)
 
-        context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
-        new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
-        context_layer = context_layer.view(new_context_layer_shape)
-
-        outputs = (context_layer, attention_probs) if output_attentions else (context_layer,)
+        outputs = (context_layer, attention_scores) if output_attentions else (context_layer,)
 
         return outputs
 
