@@ -35,6 +35,7 @@ from transformers.utils import (
     replace_return_docstrings,
 )
 from .configuration_segformer import SegformerConfig
+from .deformable_attention import DeformableAttention2D
 
 
 logger = logging.get_logger(__name__)
@@ -317,15 +318,27 @@ class SegformerMixFFN(nn.Module):
 class SegformerLayer(nn.Module):
     """This corresponds to the Block class in the original implementation."""
 
-    def __init__(self, config, hidden_size, num_attention_heads, drop_path, sequence_reduction_ratio, mlp_ratio):
+    def __init__(self, config, hidden_size, num_attention_heads, drop_path, sequence_reduction_ratio, mlp_ratio, attention_type):
         super().__init__()
         self.layer_norm_1 = nn.LayerNorm(hidden_size)
-        self.attention = SegformerAttention(
-            config,
-            hidden_size=hidden_size,
-            num_attention_heads=num_attention_heads,
-            sequence_reduction_ratio=sequence_reduction_ratio,
-        )
+        if attention_type == 'E':
+            self.attention = SegformerAttention(
+                config,
+                hidden_size=hidden_size,
+                num_attention_heads=num_attention_heads,
+                sequence_reduction_ratio=sequence_reduction_ratio,
+            )
+        elif attention_type == 'D':
+            self.attention = DeformableAttention2D(
+                dim = hidden_size,                   # feature dimensions
+                dim_head = hidden_size//num_attention_heads,               # dimension per head
+                heads = num_attention_heads,                   # attention heads
+                dropout = 0.,                # dropout
+                downsample_factor = sequence_reduction_ratio,       # downsample factor (r in paper)
+                offset_scale = 4,            # scale of offset, maximum offset
+                offset_groups = None if num_attention_heads<4 else num_attention_heads//4,        # number of offset groups, should be multiple of heads
+                offset_kernel_size = sequence_reduction_ratio+2,      # offset kernel size
+            )
         self.drop_path = SegformerDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         self.layer_norm_2 = nn.LayerNorm(hidden_size)
         mlp_hidden_size = int(hidden_size * mlp_ratio)
@@ -395,6 +408,7 @@ class SegformerEncoder(nn.Module):
                         drop_path=drop_path_decays[cur + j],
                         sequence_reduction_ratio=config.sr_ratios[i],
                         mlp_ratio=config.mlp_ratios[i],
+                        attention_type='D' if (j%2==1 and i>1) else 'E',
                     )
                 )
             blocks.append(nn.ModuleList(layers))
