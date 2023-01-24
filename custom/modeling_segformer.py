@@ -18,6 +18,7 @@
 import math
 from typing import Optional, Tuple, Union
 
+import numpy as np
 import torch
 import torch.utils.checkpoint
 from torch import nn
@@ -145,6 +146,16 @@ class SegformerOverlapPatchEmbeddings(nn.Module):
         embeddings = self.layer_norm(embeddings)
         return embeddings, height, width
 
+class SegformerTokenMixerPooling(nn.Module):
+    def __init__(self, pool_size=3):
+        super().__init__()
+        self.pool = nn.AvgPool2d(
+            pool_size, stride=1, 
+            padding=pool_size//2,
+            count_include_pad=False,
+        )
+    def forward(self, x):
+        return self.pool(x) - x
 
 class SegformerEfficientSelfAttention(nn.Module):
     """SegFormer's efficient self-attention mechanism. Employs the sequence reduction process introduced in the [PvT
@@ -248,7 +259,7 @@ class SegformerAttention(nn.Module):
             num_attention_heads=num_attention_heads,
             sequence_reduction_ratio=sequence_reduction_ratio,
         )
-        self.output = SegformerSelfOutput(config, hidden_size=hidden_size)
+        #self.output = SegformerSelfOutput(config, hidden_size=hidden_size)
         self.pruned_heads = set()
 
     def prune_heads(self, heads):
@@ -272,8 +283,9 @@ class SegformerAttention(nn.Module):
     def forward(self, hidden_states, height, width, output_attentions=False):
         self_outputs = self.self(hidden_states, height, width, output_attentions)
 
-        attention_output = self.output(self_outputs[0], hidden_states)
-        outputs = (attention_output,) + self_outputs[1:]  # add attentions if we output them
+        #attention_output = self.output(self_outputs[0], hidden_states)
+        #outputs = (attention_output,) + self_outputs[1:]  # add attentions if we output them
+        outputs = self_outputs
         return outputs
 
 
@@ -296,21 +308,35 @@ class SegformerMixFFN(nn.Module):
         super().__init__()
         out_features = out_features or in_features
         self.dense1 = nn.Linear(in_features, hidden_features)
+        #self.conv1 = nn.Conv2d(in_features, hidden_features, 1)
         self.dwconv = SegformerDWConv(hidden_features)
         if isinstance(config.hidden_act, str):
             self.intermediate_act_fn = ACT2FN[config.hidden_act]
         else:
             self.intermediate_act_fn = config.hidden_act
         self.dense2 = nn.Linear(hidden_features, out_features)
+        #self.conv2 = nn.Conv2d(hidden_features, out_features, 1)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, hidden_states, height, width):
         hidden_states = self.dense1(hidden_states)
+        #batch_size, seq_len, num_channels = hidden_states.shape
+        #hidden_states = hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width)
+        #hidden_states = self.conv1(hidden_states)
+        #hidden_states = hidden_states.flatten(2).transpose(1, 2)
+
         hidden_states = self.dwconv(hidden_states, height, width)
         hidden_states = self.intermediate_act_fn(hidden_states)
         hidden_states = self.dropout(hidden_states)
+
         hidden_states = self.dense2(hidden_states)
+        #batch_size, seq_len, num_channels = hidden_states.shape
+        #hidden_states = hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width)
+        #hidden_states = self.conv2(hidden_states)
+        #hidden_states = hidden_states.flatten(2).transpose(1, 2)
+
         hidden_states = self.dropout(hidden_states)
+        #print(hidden_states.shape)
         return hidden_states
 
 
@@ -319,40 +345,54 @@ class SegformerLayer(nn.Module):
 
     def __init__(self, config, hidden_size, num_attention_heads, drop_path, sequence_reduction_ratio, mlp_ratio):
         super().__init__()
-        self.layer_norm_1 = nn.LayerNorm(hidden_size)
-        self.attention = SegformerAttention(
-            config,
-            hidden_size=hidden_size,
-            num_attention_heads=num_attention_heads,
-            sequence_reduction_ratio=sequence_reduction_ratio,
-        )
+        #self.layer_norm_1 = nn.LayerNorm(hidden_size)
+        #self.attention = SegformerAttention(
+        #    config,
+        #    hidden_size=hidden_size,
+        #    num_attention_heads=num_attention_heads,
+        #    sequence_reduction_ratio=sequence_reduction_ratio,
+        #)
+        self.pooling = SegformerTokenMixerPooling()
         self.drop_path = SegformerDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         self.layer_norm_2 = nn.LayerNorm(hidden_size)
+        self.layer_norm_3 = nn.LayerNorm(hidden_size)
         mlp_hidden_size = int(hidden_size * mlp_ratio)
         self.mlp = SegformerMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
 
     def forward(self, hidden_states, height, width, output_attentions=False):
-        self_attention_outputs = self.attention(
-            self.layer_norm_1(hidden_states),  # in Segformer, layernorm is applied before self-attention
-            height,
-            width,
-            output_attentions=output_attentions,
-        )
+        #self_attention_outputs = self.attention(
+        #    self.layer_norm_1(hidden_states),  # in Segformer, layernorm is applied before self-attention
+        #    height,
+        #    width,
+        #    output_attentions=output_attentions,
+        #)
 
-        attention_output = self_attention_outputs[0]
-        outputs = self_attention_outputs[1:]  # add self attentions if we output attention weights
+        #attention_output = self_attention_outputs[0]
+        #outputs = self_attention_outputs[1:]  # add self attentions if we output attention weights
 
         # first residual connection (with stochastic depth)
-        attention_output = self.drop_path(attention_output)
-        hidden_states = attention_output + hidden_states
+        #attention_output = self.drop_path(attention_output)
+        #hidden_states = attention_output + hidden_states
 
-        mlp_output = self.mlp(self.layer_norm_2(hidden_states), height, width)
+        hidden_states = self.layer_norm_2(hidden_states)
+        batch_size, seq_len, num_channels = hidden_states.shape
+        #print(hidden_states.shape)
+        pooling_output = self.pooling(hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width))
+        #print(pooling_output.shape)
+        pooling_output = pooling_output.flatten(2).transpose(1, 2)
+        #print(pooling_output.shape)
+
+        pooling_output = self.drop_path(pooling_output)
+        #print(hidden_states.shape)
+        hidden_states = pooling_output + hidden_states
+
+        mlp_output = self.mlp(self.layer_norm_3(hidden_states), height, width)
 
         # second residual connection (with stochastic depth)
         mlp_output = self.drop_path(mlp_output)
         layer_output = mlp_output + hidden_states
 
-        outputs = (layer_output,) + outputs
+        outputs = (layer_output,) #+ outputs
 
         return outputs
 
@@ -692,25 +732,27 @@ class SegformerDecodeHead(SegformerPreTrainedModel):
         self.linear_c = nn.ModuleList(mlps)
 
         # the following 3 layers implement the ConvModule of the original implementation
-        self.linear_fuse = nn.Conv2d(
-            in_channels=config.decoder_hidden_size * config.num_encoder_blocks,
-            out_channels=config.decoder_hidden_size,
-            kernel_size=1,
-            bias=False,
-        )
+        #self.linear_fuse = nn.Conv2d(
+        #    in_channels=config.decoder_hidden_size * config.num_encoder_blocks,
+        #    out_channels=config.decoder_hidden_size,
+        #    kernel_size=1,
+        #    bias=False,
+        #)
         self.batch_norm = nn.BatchNorm2d(config.decoder_hidden_size)
         self.activation = nn.ReLU()
 
         self.dropout = nn.Dropout(config.classifier_dropout_prob)
         self.classifier = nn.Conv2d(config.decoder_hidden_size, config.num_labels, kernel_size=1)
 
+        self.weights = [nn.parameter.Parameter(torch.ones(1)) for _ in range(4)]
+
         self.config = config
 
     def forward(self, encoder_hidden_states):
         batch_size = encoder_hidden_states[-1].shape[0]
 
-        all_hidden_states = ()
-        for encoder_hidden_state, mlp in zip(encoder_hidden_states, self.linear_c):
+        all_hidden_states = 0
+        for idx, (encoder_hidden_state, mlp) in enumerate(zip(encoder_hidden_states, self.linear_c)):
             if self.config.reshape_last_stage is False and encoder_hidden_state.ndim == 3:
                 height = width = int(math.sqrt(encoder_hidden_state.shape[-1]))
                 encoder_hidden_state = (
@@ -722,14 +764,16 @@ class SegformerDecodeHead(SegformerPreTrainedModel):
             encoder_hidden_state = mlp(encoder_hidden_state)
             encoder_hidden_state = encoder_hidden_state.permute(0, 2, 1)
             encoder_hidden_state = encoder_hidden_state.reshape(batch_size, -1, height, width)
+
             # upsample
             encoder_hidden_state = nn.functional.interpolate(
                 encoder_hidden_state, size=encoder_hidden_states[0].size()[2:], mode="bilinear", align_corners=False
             )
-            all_hidden_states += (encoder_hidden_state,)
+            encoder_hidden_state = torch.mul(self.weights[idx], encoder_hidden_state)
+            all_hidden_states += encoder_hidden_state
 
-        hidden_states = self.linear_fuse(torch.cat(all_hidden_states[::-1], dim=1))
-        hidden_states = self.batch_norm(hidden_states)
+        #hidden_states = self.linear_fuse(torch.cat(all_hidden_states[::-1], dim=1))
+        hidden_states = self.batch_norm(all_hidden_states)
         hidden_states = self.activation(hidden_states)
         hidden_states = self.dropout(hidden_states)
 

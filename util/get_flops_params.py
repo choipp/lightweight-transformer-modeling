@@ -5,7 +5,7 @@ import json
 import torch
 import argparse
 from thop import profile
-sys.path.append('/opt/ml/input/final_project_level3-cv-16/')
+sys.path.append('/opt/ml/input/final-project-level3-cv-16/')
 from custom import SegformerForSemanticSegmentation, SegformerConfig, SegformerForImageClassification
 from torchsummaryX import summary as _summary
 from ptflops import get_model_complexity_info
