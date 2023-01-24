@@ -4,8 +4,8 @@ import json
 import torch
 import argparse
 from thop import profile
-sys.path.append('/opt/ml/input/Naver_BoostCamp_NOTA/')
-from mod_segformer import SegformerForSemanticSegmentation, SegformerConfig, SegformerForImageClassification
+sys.path.append('/opt/ml/input/final_project_level3-cv-16/')
+from custom import SegformerForSemanticSegmentation, SegformerConfig, SegformerForImageClassification
 from torchsummaryX import summary as _summary
 from ptflops import get_model_complexity_info
 from torchinfo import summary as info_summary
@@ -61,7 +61,7 @@ def main(opt):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', type=str, default="/opt/ml/input/Naver_BoostCamp_NOTA/dataset_path/ADEChallengeData2016")
+    parser.add_argument('--data_dir', type=str, default="/opt/ml/input/final_project_level3-cv-16/dataset_path/ADEChallengeData2016")
     return parser.parse_args()
 
 if __name__ == "__main__":

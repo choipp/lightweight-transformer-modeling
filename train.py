@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import datetime
 import torch
 import logging
 import argparse
@@ -8,12 +9,10 @@ import numpy as np
 from torch import nn
 from tqdm.auto import tqdm
 
-from pathlib import Path
-
 from util.logger import set_logger
 from util.data import generate_loader
 from util.utils import label_accuracy_score, add_hist
-from mod_segformer import SegformerForSemanticSegmentation, SegformerConfig
+from custom import SegformerForSemanticSegmentation, SegformerConfig
 from transformers.optimization import get_polynomial_decay_schedule_with_warmup
 
 
@@ -143,6 +142,7 @@ def main(opt):
             num_training_steps=int(len(train_loader) * epochs),
             lr_end=0.0,
             power=1,
+            
         )
     logging.info(f"Number of training images: {len(train_loader.dataset)}")
     logging.info(f"Number of validation images: {len(val_loader.dataset)}")
@@ -196,6 +196,7 @@ def main(opt):
         log_stats = {'epoch': epoch+1,
                      'train_loss': train_epoch_loss,
                      'train_miou': train_epoch_miou,
+                     'train_lr': train_epoch_lr,
                      'val_loss': val_epoch_loss,
                      'val_miou': val_epoch_miou,}
         with open(os.path.join(opt.save_path, 'log.txt'), 'a') as f:
@@ -203,9 +204,10 @@ def main(opt):
         time.sleep(5)
         
     total_time = time.time() - start_time
+    total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     with open(os.path.join(opt.save_path, 'log.txt'), 'a') as f:
         f.write(f'Best validation mIoU: {best_val_miou:.3f}% / epoch: {best_epoch}' + "\n")
-        f.write(f'Total time {total_time}' + "\n")
+        f.write(f'Training time {total_time_str}' + "\n")
     model.module.save_pretrained(os.path.join(opt.save_path, 'final'))
     logging.info('TRAINING COMPLETE!')
     
@@ -214,15 +216,15 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--device', type=str, default='0', help='Select gpu to use')
     parser.add_argument('--lr', type=float, default=6e-5) # do not modify
-    parser.add_argument('--pretrain', type=str, default='/opt/ml/input/Naver_BoostCamp_NOTA/checkpoint298.pth')
-    parser.add_argument('--save_path', type=str, default='/opt/ml/input/Naver_BoostCamp_NOTA/result/mod_segformer')
+    parser.add_argument('--pretrain', type=str, default='/opt/ml/input/final_project_level3-cv-16/result/mod_segformer/best_checkpoint.pth')
+    parser.add_argument('--save_path', type=str, default='/opt/ml/input/final_project_level3-cv-16/result/mod_segformer')
     parser.add_argument('--num_workers', type=int, default=6) 
     parser.add_argument('--seed', type=int, default=1) # do not modify
     parser.add_argument('--batch_size', type=int, default=8) 
     parser.add_argument('--epochs', type=int, default=60) # do not modify
     parser.add_argument('--warmup_steps', type=int, default=1500) # do not modify
     parser.add_argument('--weight_decay', type=float, default=0.01) # do not modify      
-    parser.add_argument('--data_dir', type=str, default="/opt/ml/input/Naver_BoostCamp_NOTA/dataset_path/ADEChallengeData2016") 
+    parser.add_argument('--data_dir', type=str, default="/opt/ml/input/final_project_level3-cv-16/dataset_path/ADEChallengeData2016") 
     parser.add_argument(
         '--log-level', type=str, choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
         dest='log_level', default='INFO',
