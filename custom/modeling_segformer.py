@@ -405,6 +405,8 @@ class SegformerEncoder(nn.Module):
         self.layer_norm = nn.ModuleList(
             [nn.LayerNorm(config.hidden_sizes[i]) for i in range(config.num_encoder_blocks)]
         )
+        self.activation = nn.ReLU()
+        self.dropout = nn.Dropout(config.classifier_dropout_prob)
 
     def forward(
         self,
@@ -423,14 +425,17 @@ class SegformerEncoder(nn.Module):
             embedding_layer, block_layer, norm_layer = x
             # first, obtain patch embeddings
             hidden_states, height, width = embedding_layer(hidden_states)
+            hidden_states_ = hidden_states[:]
             # second, send embeddings through blocks
             for i, blk in enumerate(block_layer):
-                layer_outputs = blk(hidden_states, height, width, output_attentions)
-                hidden_states = layer_outputs[0]
+                layer_outputs = blk(hidden_states_, height, width, output_attentions)
+                hidden_states_ = layer_outputs[0]
                 if output_attentions:
                     all_self_attentions = all_self_attentions + (layer_outputs[1],)
             # third, apply layer norm
-            hidden_states = norm_layer(hidden_states)
+            hidden_states = norm_layer(hidden_states_+hidden_states)
+            hidden_states = self.activation(hidden_states)
+            hidden_states = self.dropout(hidden_states)
             # fourth, optionally reshape back to (batch_size, num_channels, height, width)
             if idx != len(self.patch_embeddings) - 1 or (
                 idx == len(self.patch_embeddings) - 1 and self.config.reshape_last_stage
@@ -438,6 +443,8 @@ class SegformerEncoder(nn.Module):
                 hidden_states = hidden_states.reshape(batch_size, height, width, -1).permute(0, 3, 1, 2).contiguous()
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
+                
+        hidden_states
 
         if not return_dict:
             return tuple(v for v in [hidden_states, all_hidden_states, all_self_attentions] if v is not None)
