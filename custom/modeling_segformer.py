@@ -395,13 +395,13 @@ class SegformerLayer(nn.Module):
 
         # first residual connection (with stochastic depth)
         attention_output = self.drop_path(attention_output)
-        hidden_states = attention_output + hidden_states
+        hidden_states = attention_output + hidden_states # torch.Size([1, 16384, 64])
 
         mlp_output = self.mlp(self.layer_norm_2(hidden_states), height, width)
 
         # second residual connection (with stochastic depth)
         mlp_output = self.drop_path(mlp_output)
-        layer_output = mlp_output + hidden_states
+        layer_output = mlp_output + hidden_states # torch.Size([1, 16384, 64])
 
         outputs = (layer_output,) + outputs
 
@@ -475,7 +475,7 @@ class SegformerEncoder(nn.Module):
             # first, obtain patch embeddings
             hidden_states, height, width = embedding_layer(hidden_states)
             ## add input_hidden_states for residual connection 
-            input_hidden_states = hidden_states
+            input_hidden_states = hidden_states # torch.Size([1, 16384, 64])
             # second, send embeddings through blocks
             for i, blk in enumerate(block_layer):
                 layer_outputs = blk(hidden_states, height, width, output_attentions)
@@ -484,6 +484,7 @@ class SegformerEncoder(nn.Module):
                     all_self_attentions = all_self_attentions + (layer_outputs[1],)
             # third, apply layer norm
             hidden_states = norm_layer(hidden_states)
+            hidden_states = input_hidden_states + hidden_states
             # fourth, optionally reshape back to (batch_size, num_channels, height, width)
             if idx != len(self.patch_embeddings) - 1 or (
                 idx == len(self.patch_embeddings) - 1 and self.config.reshape_last_stage
@@ -493,7 +494,6 @@ class SegformerEncoder(nn.Module):
                 all_hidden_states = all_hidden_states + (hidden_states,)
             
             ## add input_hidden_states for residual connection
-            hidden_states = input_hidden_states + hidden_states
 
         if not return_dict:
             return tuple(v for v in [hidden_states, all_hidden_states, all_self_attentions] if v is not None)
