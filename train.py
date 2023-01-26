@@ -7,6 +7,7 @@ import argparse
 import numpy as np
 from torch import nn
 from tqdm.auto import tqdm
+import datetime
 
 from pathlib import Path
 
@@ -98,7 +99,8 @@ def main(opt):
     if os.path.splitext(opt.pretrain)[-1] == '.pth':
         logging.info("fine-tuning .pth")
         pt = torch.load(opt.pretrain, map_location='cpu')
-        torch.save(pt['model'], opt.pretrain)
+        dst = opt.pretrain.replace('.pth', '_state_dict.pth')
+        torch.save(pt['model'], dst)
         model = SegformerForSemanticSegmentation.from_pretrained(
             dst,
             config=SegformerConfig(
@@ -170,6 +172,7 @@ def main(opt):
     time_one_epoch_start = None
     time_one_epoch_end = None
     elapsed_time_one_epoch = None
+    start_time = time.time()
     for epoch in range(epochs):
         logging.info(f"Epoch {epoch+1} of {epochs}")
         time_one_epoch_start = time.time()
@@ -193,8 +196,31 @@ def main(opt):
         
         if best_val_miou < val_epoch_miou:
             best_val_miou = val_epoch_miou
+            best_epoch = epoch + 1
             model.module.save_pretrained(os.path.join(opt.save_path, 'best'))
+            if best_epoch > 40:
+                checkpoint_path = opt.save_path + '/best_checkpoint_{}.pth'.format(str(epoch))
+                torch.save({
+                    'model': model.state_dict(),
+                    'optimizer': optimizer.statte_dict(),
+                    'lr_scheduler': train_epoch_lr,
+                    'epoch': epoch,
+                    'scaler': train_epoch_loss,
+                    'opt': opt,
+                }, checkpoint_path)
+        log_stats = {'epoch': epoch+1,
+                     'train_loss': train_epoch_loss,
+                     'val_loss': val_epoch_loss,
+                     'val_miou': val_epoch_miou}
+        with open(os.path.join(opt.save_path, 'log.txt'), 'a') as f:
+            f.write(json.dumps(log_stats) + '\n')
         time.sleep(5)
+    
+    total_time = time.time() - start_time
+    total_time_str = str(datetime.timedelta(seconds=int(total_time)))
+    with open(os.path.join(opt.save_path, 'log.txt'), 'a') as f:
+        f.write(f'Best validation mIoU: {best_val_miou:.3f}% / epoch: {best_epoch}' +'\n')
+        f.write(f'Total time {total_time_str}')  
         
     model.module.save_pretrained(os.path.join(opt.save_path, 'final'))
     logging.info('TRAINING COMPLETE!')
@@ -204,8 +230,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--device', type=str, default='0', help='Select gpu to use')
     parser.add_argument('--lr', type=float, default=6e-5) # do not modify
-    parser.add_argument('--pretrain', type=str, default='/opt/ml/input/Naver_BoostCamp_NOTA/imagenet_pretrain/result/mod_segformer/checkpoint298.pth')
-    parser.add_argument('--save_path', type=str, default='/opt/ml/input/Naver_BoostCamp_NOTA/result/baseline')
+    parser.add_argument('--pretrain', type=str, default='/opt/ml/input/final-project-level3-cv-16/imagenet_pretrain/result/edgenext_xca/checkpoint295.pth')
+    parser.add_argument('--save_path', type=str, default='/opt/ml/input/final-project-level3-cv-16/result/edgenext_xca/')
     parser.add_argument('--num_workers', type=int, default=6) 
     parser.add_argument('--seed', type=int, default=1) # do not modify
     parser.add_argument('--batch_size', type=int, default=8) 
@@ -234,6 +260,6 @@ if __name__ == "__main__":
     logging = logging.getLogger("segformer")
     logging.propagate = False
     
-    # main(opt)
-    pt = torch.load(opt.pretrain, map_location='cpu')
-    print(pt)
+    main(opt)
+    # pt = torch.load(opt.pretrain, map_location='cpu')
+    # print(pt)

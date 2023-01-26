@@ -388,7 +388,7 @@ class SegformerLayer(nn.Module):
             height,
             width,
             output_attentions=output_attentions,
-        ) # (torch.Size([0, 16384, 64]))
+        ) # (torch.Size([1, 16384, 64]))
 
         attention_output = self_attention_outputs[0] 
         outputs = self_attention_outputs[1:]  # add self attentions if we output attention weights
@@ -474,6 +474,8 @@ class SegformerEncoder(nn.Module):
             embedding_layer, block_layer, norm_layer = x
             # first, obtain patch embeddings
             hidden_states, height, width = embedding_layer(hidden_states)
+            ## add input_hidden_states for residual connection 
+            input_hidden_states = hidden_states
             # second, send embeddings through blocks
             for i, blk in enumerate(block_layer):
                 layer_outputs = blk(hidden_states, height, width, output_attentions)
@@ -489,6 +491,9 @@ class SegformerEncoder(nn.Module):
                 hidden_states = hidden_states.reshape(batch_size, height, width, -1).permute(0, 3, 1, 2).contiguous()
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
+            
+            ## add input_hidden_states for residual connection
+            hidden_states = input_hidden_states + hidden_states
 
         if not return_dict:
             return tuple(v for v in [hidden_states, all_hidden_states, all_self_attentions] if v is not None)
@@ -742,13 +747,6 @@ class SegformerDecodeHead(SegformerPreTrainedModel):
             mlps.append(mlp)
         self.linear_c = nn.ModuleList(mlps)
 
-        # the following 3 layers implement the ConvModule of the original implementation
-        # self.linear_fuse = nn.Conv2d(
-        #     in_channels=config.decoder_hidden_size * config.num_encoder_blocks,
-        #     out_channels=config.decoder_hidden_size,
-        #     kernel_size=1,
-        #     bias=False,
-        # )
         
         # mod_linear_fuse
         self.linear_fuse = nn.Conv2d(

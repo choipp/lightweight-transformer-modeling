@@ -6,8 +6,8 @@ import torch
 import argparse
 from thop import profile
 import sys
-sys.path.append('/opt/ml/input/Naver_BoostCamp_NOTA')
-from segformer import SegformerForSemanticSegmentation, SegformerConfig
+sys.path.append('/opt/ml/input/final-project-level3-cv-16')
+from custom import SegformerForSemanticSegmentation, SegformerConfig
 from torchsummaryX import summary
 from ptflops import get_model_complexity_info
 from time import time, localtime
