@@ -170,12 +170,16 @@ class SegformerEfficientSelfAttention(nn.Module):
 
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
-        self.sr_ratio = sequence_reduction_ratio
-        if sequence_reduction_ratio > 1:
-            self.sr = nn.Conv2d(
-                hidden_size, hidden_size, kernel_size=sequence_reduction_ratio, stride=sequence_reduction_ratio
-            )
-            self.layer_norm = nn.LayerNorm(hidden_size)
+        # self.sr_ratio = sequence_reduction_ratio
+        # if sequence_reduction_ratio > 1:
+        #     self.sr = nn.Conv2d(
+        #         hidden_size, hidden_size, kernel_size=sequence_reduction_ratio, stride=sequence_reduction_ratio
+        #     )
+        #     self.layer_norm = nn.LayerNorm(hidden_size)
+        self.pool = nn.AdaptiveAvgPool2d(7)
+        self.sr = nn.Conv2d(hidden_size, hidden_size, kernel_size=1, stride=1)
+        self.norm = nn.LayerNorm(hidden_size)
+        self.act = nn.GELU()
 
     def transpose_for_scores(self, hidden_states):
         new_shape = hidden_states.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
@@ -191,15 +195,22 @@ class SegformerEfficientSelfAttention(nn.Module):
     ):
         query_layer = self.transpose_for_scores(self.query(hidden_states))
 
-        if self.sr_ratio > 1:
-            batch_size, seq_len, num_channels = hidden_states.shape
-            # Reshape to (batch_size, num_channels, height, width)
-            hidden_states = hidden_states.permute(0, 2, 1).reshape(batch_size, num_channels, height, width)
-            # Apply sequence reduction
-            hidden_states = self.sr(hidden_states)
-            # Reshape back to (batch_size, seq_len, num_channels)
-            hidden_states = hidden_states.reshape(batch_size, num_channels, -1).permute(0, 2, 1)
-            hidden_states = self.layer_norm(hidden_states)
+        # if self.sr_ratio > 1:
+        #     batch_size, seq_len, num_channels = hidden_states.shape
+        #     # Reshape to (batch_size, num_channels, height, width)
+        #     hidden_states = hidden_states.permute(0, 2, 1).reshape(batch_size, num_channels, height, width)
+        #     # Apply sequence reduction
+        #     hidden_states = self.sr(hidden_states)
+        #     # Reshape back to (batch_size, seq_len, num_channels)
+        #     hidden_states = hidden_states.reshape(batch_size, num_channels, -1).permute(0, 2, 1)
+        #     hidden_states = self.layer_norm(hidden_states)
+        
+        batch_size, seq_len, num_channels = hidden_states.shape
+        hidden_states = hidden_states.permute(0, 2, 1).reshape(batch_size, num_channels, height, width)
+        hidden_states = self.sr(self.pool(hidden_states))
+        hidden_states = hidden_states.reshape(batch_size, num_channels, -1).permute(0, 2, 1)
+        hidden_states = self.norm(hidden_states)
+        hidden_states = self.act(hidden_states)
 
         key_layer = self.transpose_for_scores(self.key(hidden_states))
         value_layer = self.transpose_for_scores(self.value(hidden_states))
@@ -222,21 +233,22 @@ class SegformerEfficientSelfAttention(nn.Module):
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
         context_layer = context_layer.view(new_context_layer_shape)
 
-        outputs = (context_layer, attention_probs) if output_attentions else (context_layer,)
+        # outputs = (context_layer, attention_probs) if output_attentions else (context_layer,)
+        outputs = (context_layer,)
 
         return outputs
 
 
-class SegformerSelfOutput(nn.Module):
-    def __init__(self, config, hidden_size):
-        super().__init__()
-        self.dense = nn.Linear(hidden_size, hidden_size)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+# class SegformerSelfOutput(nn.Module):
+#     def __init__(self, config, hidden_size):
+#         super().__init__()
+#         self.dense = nn.Linear(hidden_size, hidden_size)
+#         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-    def forward(self, hidden_states, input_tensor):
-        hidden_states = self.dense(hidden_states)
-        hidden_states = self.dropout(hidden_states)
-        return hidden_states
+#     def forward(self, hidden_states, input_tensor):
+#         hidden_states = self.dense(hidden_states)
+#         hidden_states = self.dropout(hidden_states)
+#         return hidden_states
 
 
 class SegformerAttention(nn.Module):
@@ -248,7 +260,7 @@ class SegformerAttention(nn.Module):
             num_attention_heads=num_attention_heads,
             sequence_reduction_ratio=sequence_reduction_ratio,
         )
-        self.output = SegformerSelfOutput(config, hidden_size=hidden_size)
+        # self.output = SegformerSelfOutput(config, hidden_size=hidden_size)
         self.pruned_heads = set()
 
     def prune_heads(self, heads):
@@ -272,8 +284,8 @@ class SegformerAttention(nn.Module):
     def forward(self, hidden_states, height, width, output_attentions=False):
         self_outputs = self.self(hidden_states, height, width, output_attentions)
 
-        attention_output = self.output(self_outputs[0], hidden_states)
-        outputs = (attention_output,) + self_outputs[1:]  # add attentions if we output them
+        # attention_output = self.output(self_outputs[0], hidden_states)
+        outputs = self_outputs  # add attentions if we output them
         return outputs
     
 
@@ -756,6 +768,7 @@ class SegformerDecodeHead(SegformerPreTrainedModel):
             kernel_size=1,
             bias=False,
         )
+        self.weights = nn.Parameter(torch.ones(config.num_encoder_blocks, 1))
         self.batch_norm = nn.BatchNorm2d(config.decoder_hidden_size)
         self.activation = nn.ReLU()
 
@@ -767,8 +780,8 @@ class SegformerDecodeHead(SegformerPreTrainedModel):
     def forward(self, encoder_hidden_states):
         batch_size = encoder_hidden_states[-1].shape[0]
 
-        all_hidden_states = ()
-        for encoder_hidden_state, mlp in zip(encoder_hidden_states, self.linear_c):
+        all_hidden_states = 0
+        for idx, (encoder_hidden_state, mlp) in enumerate(zip(encoder_hidden_states, self.linear_c)):
             if self.config.reshape_last_stage is False and encoder_hidden_state.ndim == 3:
                 height = width = int(math.sqrt(encoder_hidden_state.shape[-1]))
                 encoder_hidden_state = (
@@ -784,10 +797,11 @@ class SegformerDecodeHead(SegformerPreTrainedModel):
             encoder_hidden_state = nn.functional.interpolate(
                 encoder_hidden_state, size=encoder_hidden_states[0].size()[2:], mode="bilinear", align_corners=False
             )
-            all_hidden_states += (encoder_hidden_state,)
+            encoder_hidden_state = torch.mul(self.weights[idx, :], encoder_hidden_state)
+            all_hidden_states += encoder_hidden_state
 
-        hidden_states = self.linear_fuse(torch.cat(all_hidden_states[::-1], dim=1))
-        hidden_states = self.batch_norm(hidden_states)
+        # hidden_states = self.linear_fuse(torch.cat(all_hidden_states[::-1], dim=1))
+        hidden_states = self.batch_norm(all_hidden_states)
         hidden_states = self.activation(hidden_states)
         hidden_states = self.dropout(hidden_states)
 
