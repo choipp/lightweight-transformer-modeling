@@ -347,8 +347,9 @@ class SegformerLayer(nn.Module):
         self.mlp = SegformerMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
 
     def forward(self, hidden_states, height, width, output_attentions=False):
+        hidden_states_ = hidden_states[:]
         self_attention_outputs = self.attention(
-            self.layer_norm_1(hidden_states),  # in Segformer, layernorm is applied before self-attention
+            hidden_states,  # in Segformer, layernorm is applied before self-attention
             height,
             width,
             output_attentions=output_attentions,
@@ -361,11 +362,11 @@ class SegformerLayer(nn.Module):
         attention_output = self.drop_path(attention_output)
         hidden_states = attention_output + hidden_states
 
-        mlp_output = self.mlp(self.layer_norm_2(hidden_states), height, width)
+        mlp_output = self.mlp(self.layer_norm_1(hidden_states), height, width)
 
         # second residual connection (with stochastic depth)
         mlp_output = self.drop_path(mlp_output)
-        layer_output = mlp_output + hidden_states
+        layer_output = self.layer_norm_2(mlp_output + hidden_states + hidden_states_)
 
         outputs = (layer_output,) + outputs
 
@@ -420,6 +421,8 @@ class SegformerEncoder(nn.Module):
         self.layer_norm = nn.ModuleList(
             [nn.LayerNorm(config.hidden_sizes[i]) for i in range(config.num_encoder_blocks)]
         )
+        self.activation = nn.ReLU()
+        self.dropout = nn.Dropout(config.classifier_dropout_prob)
 
     def forward(
         self,
@@ -438,6 +441,7 @@ class SegformerEncoder(nn.Module):
             embedding_layer, block_layer, norm_layer = x
             # first, obtain patch embeddings
             hidden_states, height, width = embedding_layer(hidden_states)
+            hidden_states_ = hidden_states[:]
             # second, send embeddings through blocks
             for i, blk in enumerate(block_layer):
                 layer_outputs = blk(hidden_states, height, width, output_attentions)
@@ -445,7 +449,7 @@ class SegformerEncoder(nn.Module):
                 if output_attentions:
                     all_self_attentions = all_self_attentions + (layer_outputs[1],)
             # third, apply layer norm
-            hidden_states = norm_layer(hidden_states)
+            hidden_states = norm_layer(hidden_states+hidden_states_)
             # fourth, optionally reshape back to (batch_size, num_channels, height, width)
             if idx != len(self.patch_embeddings) - 1 or (
                 idx == len(self.patch_embeddings) - 1 and self.config.reshape_last_stage
