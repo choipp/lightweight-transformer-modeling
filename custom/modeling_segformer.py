@@ -318,13 +318,9 @@ class SegformerAttention(nn.Module):
         self.pruned_heads = self.pruned_heads.union(heads)
 
     def forward(self, hidden_states, height, width, output_attentions=False):
-        # self_outputs = self.self(hidden_states, height, width, output_attentions) # (torch.Size([1, 16384, 64]))
-        self_outputs = self.self(hidden_states) # torch.size([1, 16384, 64])
-        #hidden_states: torch.Size([1, 16384, 64])
-        # attention_output = self.output(self_outputs[0], hidden_states) # torch.Size([1, 16384, 64])
-        attention_output = self.output(self_outputs, hidden_states) # torch.Size([1, 16384, 64])
-        # outputs = (attention_output,) + self_outputs[1:]  # add attentions if we output them # torch.Size([1, 16384, 64])
-        outputs = (attention_output, ) + tuple()  # add attentions if we output them # torch.Size([0, 16384, 64])
+        self_outputs = self.self(hidden_states)
+        attention_output = self.output(self_outputs, hidden_states)
+        outputs = (attention_output, ) + tuple()  # add attentions if we output them 
         return outputs # tuple -> torch.Tensor
 
 
@@ -388,20 +384,20 @@ class SegformerLayer(nn.Module):
             height,
             width,
             output_attentions=output_attentions,
-        ) # (torch.Size([1, 16384, 64]))
+        )
 
         attention_output = self_attention_outputs[0] 
         outputs = self_attention_outputs[1:]  # add self attentions if we output attention weights
 
         # first residual connection (with stochastic depth)
         attention_output = self.drop_path(attention_output)
-        hidden_states = attention_output + hidden_states # torch.Size([1, 16384, 64])
+        hidden_states = attention_output + hidden_states
 
         mlp_output = self.mlp(self.layer_norm_2(hidden_states), height, width)
 
         # second residual connection (with stochastic depth)
         mlp_output = self.drop_path(mlp_output)
-        layer_output = mlp_output + hidden_states # torch.Size([1, 16384, 64])
+        layer_output = mlp_output + hidden_states
 
         outputs = (layer_output,) + outputs
 
@@ -418,7 +414,7 @@ class SegformerEncoder(nn.Module):
 
         # patch embeddings
         embeddings = []
-        for i in range(config.num_encoder_blocks): # num_encoder_blocks=4
+        for i in range(config.num_encoder_blocks):
             embeddings.append(
                 SegformerOverlapPatchEmbeddings(
                     patch_size=config.patch_sizes[i],
@@ -456,6 +452,7 @@ class SegformerEncoder(nn.Module):
         self.layer_norm = nn.ModuleList(
             [nn.LayerNorm(config.hidden_sizes[i]) for i in range(config.num_encoder_blocks)]
         )
+        self.activation = nn.ReLU()
 
     def forward(
         self,
@@ -474,8 +471,6 @@ class SegformerEncoder(nn.Module):
             embedding_layer, block_layer, norm_layer = x
             # first, obtain patch embeddings
             hidden_states, height, width = embedding_layer(hidden_states)
-            ## add input_hidden_states for residual connection 
-            input_hidden_states = hidden_states # torch.Size([1, 16384, 64])
             # second, send embeddings through blocks
             for i, blk in enumerate(block_layer):
                 layer_outputs = blk(hidden_states, height, width, output_attentions)
@@ -484,7 +479,7 @@ class SegformerEncoder(nn.Module):
                     all_self_attentions = all_self_attentions + (layer_outputs[1],)
             # third, apply layer norm
             hidden_states = norm_layer(hidden_states)
-            hidden_states = input_hidden_states + hidden_states
+            # hidden_states = self.activation(hidden_states)
             # fourth, optionally reshape back to (batch_size, num_channels, height, width)
             if idx != len(self.patch_embeddings) - 1 or (
                 idx == len(self.patch_embeddings) - 1 and self.config.reshape_last_stage
@@ -493,7 +488,6 @@ class SegformerEncoder(nn.Module):
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
             
-            ## add input_hidden_states for residual connection
 
         if not return_dict:
             return tuple(v for v in [hidden_states, all_hidden_states, all_self_attentions] if v is not None)

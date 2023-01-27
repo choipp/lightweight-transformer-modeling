@@ -202,7 +202,7 @@ def main(opt):
                 checkpoint_path = opt.save_path + '/best_checkpoint_{}.pth'.format(str(epoch))
                 torch.save({
                     'model': model.state_dict(),
-                    'optimizer': optimizer.statte_dict(),
+                    'optimizer': optimizer.state_dict(),
                     'lr_scheduler': train_epoch_lr,
                     'epoch': epoch,
                     'scaler': train_epoch_loss,
