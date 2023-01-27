@@ -423,6 +423,8 @@ class SegformerEncoder(nn.Module):
             embedding_layer, block_layer, norm_layer = x
             # first, obtain patch embeddings
             hidden_states, height, width = embedding_layer(hidden_states)
+            ## add input_hidden_states for residual connection
+            input_hidden_states = hidden_states
             # second, send embeddings through blocks
             for i, blk in enumerate(block_layer):
                 layer_outputs = blk(hidden_states, height, width, output_attentions)
@@ -430,6 +432,9 @@ class SegformerEncoder(nn.Module):
                 if output_attentions:
                     all_self_attentions = all_self_attentions + (layer_outputs[1],)
             # third, apply layer norm
+            hidden_states = norm_layer(hidden_states)
+            ## add input_hidden_states for residual connection
+            hidden_states = input_hidden_states + hidden_states
             hidden_states = norm_layer(hidden_states)
             # fourth, optionally reshape back to (batch_size, num_channels, height, width)
             if idx != len(self.patch_embeddings) - 1 or (
