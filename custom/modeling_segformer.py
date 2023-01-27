@@ -20,7 +20,7 @@ from typing import Optional, Tuple, Union
 
 import torch
 import torch.utils.checkpoint
-from torch import nn
+from torch import nn, Tensor
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 
 from transformers.activations import ACT2FN
@@ -290,17 +290,68 @@ class SegformerAttention(nn.Module):
         #outputs = (attention_output,) + self_outputs[1:]  # add attentions if we output them
         outputs = self_outputs
         return outputs
+    
 
+class MixConv2d(nn.Module):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int = 3,
+        stride: int = 1,
+        padding: int = 0,
+        dilation: int = 1,
+        groups: int = 1,
+        bias: bool = True,
+    ) -> None:
+        super().__init__()
+        self.conv_3 = nn.Conv2d(
+            in_channels // 2,
+            out_channels // 2,
+            kernel_size,
+            stride=1,
+            padding=padding,
+            dilation=dilation,
+            groups=groups // 2,
+            bias=bias,
+        )
+        self.conv_5 = nn.Conv2d(
+            in_channels - in_channels // 2,
+            out_channels - out_channels // 2,
+            kernel_size + 2,
+            stride=stride,
+            padding=padding + 1,
+            dilation=dilation,
+            groups=groups - groups // 2,
+            bias=bias,
+        )
 
+    def forward(self, x: Tensor) -> Tensor:
+        x1, x2 = x.chunk(2, dim=1)
+        x1 = self.conv_3(x1)
+        x2 = self.conv_5(x2)
+        x = torch.cat([x1, x2], dim=1)
+        return x
+    
+    
 class SegformerDWConv(nn.Module):
     def __init__(self, dim=768):
         super().__init__()
-        self.dwconv = nn.Conv2d(dim, dim, 3, 1, 1, bias=True, groups=dim)
+        self.mixconv = MixConv2d(
+            dim,
+            dim,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            groups=dim,
+            dilation=1,
+            bias=True,
+        )
 
     def forward(self, hidden_states, height, width):
         batch_size, seq_len, num_channels = hidden_states.shape
         hidden_states = hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width)
-        hidden_states = self.dwconv(hidden_states)
+        hidden_states = self.mixconv(hidden_states)
         hidden_states = hidden_states.flatten(2).transpose(1, 2)
 
         return hidden_states
