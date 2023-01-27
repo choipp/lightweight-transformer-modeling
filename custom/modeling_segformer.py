@@ -332,8 +332,9 @@ class SegformerLayer(nn.Module):
         self.mlp = SegformerMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
 
     def forward(self, hidden_states, height, width, output_attentions=False):
+        hidden_states_ = hidden_states[:]
         self_attention_outputs = self.attention(
-            self.layer_norm_1(hidden_states),  # in Segformer, layernorm is applied before self-attention
+            hidden_states,  # in Segformer, layernorm is applied before self-attention
             height,
             width,
             output_attentions=output_attentions,
@@ -346,11 +347,11 @@ class SegformerLayer(nn.Module):
         attention_output = self.drop_path(attention_output)
         hidden_states = attention_output + hidden_states
 
-        mlp_output = self.mlp(self.layer_norm_2(hidden_states), height, width)
+        mlp_output = self.mlp(self.layer_norm_1(hidden_states), height, width)
 
         # second residual connection (with stochastic depth)
         mlp_output = self.drop_path(mlp_output)
-        layer_output = mlp_output + hidden_states
+        layer_output = self.layer_norm_2(mlp_output + hidden_states + hidden_states_)
 
         outputs = (layer_output,) + outputs
 
