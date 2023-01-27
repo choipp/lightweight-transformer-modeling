@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import datetime
 import torch
 import logging
 import argparse
@@ -150,6 +151,7 @@ def main(opt):
             num_training_steps=int(len(train_loader) * epochs),
             lr_end=0.0,
             power=1,
+            
         )
     logging.info(f"Number of training images: {len(train_loader.dataset)}")
     logging.info(f"Number of validation images: {len(val_loader.dataset)}")
@@ -166,6 +168,7 @@ def main(opt):
     logging.info(f"{total_trainable_params:,} training parameters.")
     
     best_val_miou = 0.0
+    best_epoch = 0
     train_loss, val_loss = [], []
     train_miou, val_miou = [], []
     elapsed_time = []

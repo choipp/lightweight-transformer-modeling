@@ -484,6 +484,9 @@ class SegformerEncoder(nn.Module):
                     all_self_attentions = all_self_attentions + (layer_outputs[1],)
             # third, apply layer norm
             hidden_states = norm_layer(hidden_states)
+            ## add input_hidden_states for residual connection
+            hidden_states = input_hidden_states + hidden_states
+            hidden_states = norm_layer(hidden_states)
             # fourth, optionally reshape back to (batch_size, num_channels, height, width)
             if idx != len(self.patch_embeddings) - 1 or (
                 idx == len(self.patch_embeddings) - 1 and self.config.reshape_last_stage
@@ -491,9 +494,6 @@ class SegformerEncoder(nn.Module):
                 hidden_states = hidden_states.reshape(batch_size, height, width, -1).permute(0, 3, 1, 2).contiguous()
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
-            
-            ## add input_hidden_states for residual connection
-            hidden_states = input_hidden_states + hidden_states
 
         if not return_dict:
             return tuple(v for v in [hidden_states, all_hidden_states, all_self_attentions] if v is not None)
