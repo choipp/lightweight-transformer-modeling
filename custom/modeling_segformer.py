@@ -721,7 +721,7 @@ class SegformerDecodeHead(SegformerPreTrainedModel):
         self.dropout = nn.Dropout(config.classifier_dropout_prob)
         self.classifier = nn.Conv2d(config.decoder_hidden_size, config.num_labels, kernel_size=1)
         
-        self.weights = [nn.parameter.Parameter(torch.ones(1)) for _ in range(4)]
+        self.weights = [nn.parameter.Parameter(torch.ones(1).cuda()) for _ in range(4)]
 
         self.config = config
 

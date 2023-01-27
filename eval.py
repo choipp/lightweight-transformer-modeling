@@ -5,14 +5,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 from util.data import generate_loader
 from util.utils import label_accuracy_score, add_hist
-from mod_segformer import SegformerForSemanticSegmentation
+from custom import SegformerForSemanticSegmentation
 import argparse
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--gpu", type=int, default=0)
-    parser.add_argument("--data_dir", type=str,  default='/dataset_path')
-    parser.add_argument('--pretrain', type=str, default='nvidia/segformer-b2-finetuned-ade-512-512')
+    parser.add_argument("--data_dir", type=str,  default='/opt/ml/input/final_project_level3-cv-16/dataset_path/ADEChallengeData2016')
+    parser.add_argument('--pretrain', type=str, default='/opt/ml/input/final_project_level3-cv-16/result/mod_segformer/best')
     return parser.parse_args()
 
 
