@@ -150,7 +150,7 @@ class SegformerEfficientSelfAttention(nn.Module):
     """SegFormer's efficient self-attention mechanism. Employs the sequence reduction process introduced in the [PvT
     paper](https://arxiv.org/abs/2102.12122)."""
 
-    def __init__(self, config, hidden_size, num_attention_heads, sequence_reduction_ratio):
+    def __init__(self, config, hidden_size, num_attention_heads, sequence_reduction_ratio, expansion_ratio):
         super().__init__()
         self.hidden_size = hidden_size
         self.num_attention_heads = num_attention_heads
@@ -161,12 +161,14 @@ class SegformerEfficientSelfAttention(nn.Module):
                 f"heads ({self.num_attention_heads})"
             )
 
-        self.attention_head_size = int(self.hidden_size / self.num_attention_heads)
-        self.all_head_size = self.num_attention_heads * self.attention_head_size
+        self.lambdaV = expansion_ratio
+        
+        self.attention_head_size = int(self.hidden_size / self.num_attention_heads) # [64, 128, 320, 512] / [1, 2, 5, 8] = 64
+        self.all_head_size = self.num_attention_heads * self.attention_head_size # [64, 128, 320, 512]
 
-        self.query = nn.Linear(self.hidden_size, self.all_head_size)
-        self.key = nn.Linear(self.hidden_size, self.all_head_size)
-        self.value = nn.Linear(self.hidden_size, self.all_head_size)
+        #self.query = nn.Linear(self.hidden_size, self.all_head_size)
+        #self.key = nn.Linear(self.hidden_size, self.all_head_size)
+        self.value = nn.Linear(self.all_head_size, int(self.all_head_size*self.lambdaV)) # ! external args which replace self.hidden_size*2
 
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
@@ -177,15 +179,27 @@ class SegformerEfficientSelfAttention(nn.Module):
         #     )
         #     self.layer_norm = nn.LayerNorm(hidden_size)
         self.pool = nn.AdaptiveAvgPool2d(7)
-        self.sr = nn.Conv2d(hidden_size, hidden_size, kernel_size=1, stride=1)
-        self.norm = nn.LayerNorm(hidden_size)
+        self.v_hidden = int(self.all_head_size*self.lambdaV)
+        self.sr = nn.Conv2d(self.v_hidden, self.v_hidden, kernel_size=1, stride=1)
+        self.norm = nn.LayerNorm(self.v_hidden)
         self.act = nn.GELU()
 
+
+        self.unvalue = nn.Linear(int(self.attention_head_size*self.lambdaV), self.attention_head_size) # ! external args which replace self.hidden_size*2
+        self.DWconv = nn.Conv2d(self.attention_head_size, self.attention_head_size, kernel_size=3, stride=1, padding=1, bias=True, groups=self.attention_head_size)
+        self.norm2 = nn.LayerNorm(self.all_head_size)
+        self.conv = nn.Conv2d(self.attention_head_size, self.attention_head_size, kernel_size=1, stride=1,padding=0)
+        
     def transpose_for_scores(self, hidden_states):
-        new_shape = hidden_states.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
+        new_shape = hidden_states.size()[:-1] + (self.num_attention_heads, self.attention_head_size) # ([1, 2, 5, 8], 64)
         hidden_states = hidden_states.view(new_shape)
         return hidden_states.permute(0, 2, 1, 3)
-
+    
+    def transpose_for_vscores(self, hidden_states):
+        new_shape = hidden_states.size()[:-1] + (self.num_attention_heads, int(self.attention_head_size * self.lambdaV)) # ([1, 2, 5, 8], 128)
+        hidden_states = hidden_states.view(new_shape)
+        return hidden_states.permute(0, 2, 1, 3)
+    
     def forward(
         self,
         hidden_states,
@@ -193,31 +207,28 @@ class SegformerEfficientSelfAttention(nn.Module):
         width,
         output_attentions=False,
     ):
-        query_layer = self.transpose_for_scores(self.query(hidden_states))
+        _x = hidden_states[:] # 1, 16384, 64
+        
+        query_layer = self.transpose_for_scores(hidden_states) # 1, 16384, 64
 
-        # if self.sr_ratio > 1:
-        #     batch_size, seq_len, num_channels = hidden_states.shape
-        #     # Reshape to (batch_size, num_channels, height, width)
-        #     hidden_states = hidden_states.permute(0, 2, 1).reshape(batch_size, num_channels, height, width)
-        #     # Apply sequence reduction
-        #     hidden_states = self.sr(hidden_states)
-        #     # Reshape back to (batch_size, seq_len, num_channels)
-        #     hidden_states = hidden_states.reshape(batch_size, num_channels, -1).permute(0, 2, 1)
-        #     hidden_states = self.layer_norm(hidden_states)
-
-        batch_size, seq_len, num_channels = hidden_states.shape
-        hidden_states = hidden_states.permute(0, 2, 1).reshape(batch_size, num_channels, height, width)
-        hidden_states = self.sr(self.pool(hidden_states))
-        hidden_states = hidden_states.reshape(batch_size, num_channels, -1).permute(0, 2, 1)
-        hidden_states = self.norm(hidden_states)
-        hidden_states = self.act(hidden_states)
-
-        key_layer = self.transpose_for_scores(self.key(hidden_states))
-        value_layer = self.transpose_for_scores(self.value(hidden_states))
-
+        batch_size, seq_len, num_channels = hidden_states.shape # (1stage) 1, 16384, 64 / (2stage) 1, 4096, 128
+        hidden_states = hidden_states.permute(0, 2, 1).reshape(batch_size, num_channels, height, width) # 1, 64, 256, 256
+        hidden_states = self.pool(hidden_states) # 1, 64, 49(7, 7)
+        hidden_states = hidden_states.reshape(batch_size, num_channels, -1).permute(0, 2, 1) # 1, 49, 64
+        key_layer = self.transpose_for_scores(hidden_states) # (1stage) 1, 1, 49, 64/ (2stage) 1, 2, 49, 64 / (3stage) 1, 5, 49, 64
+        
+        
+        value_layer = self.value(hidden_states) # (1stage) 1, 49, 128
+        value_layer = value_layer.permute(0, 2, 1).reshape(batch_size, self.v_hidden, 7, 7) # 1, 128, 7, 7
+        value_layer = self.sr(value_layer)
+        value_layer = value_layer.reshape(batch_size, self.v_hidden, -1).permute(0, 2, 1) # 1, 49, 128
+        value_layer = self.norm(value_layer)
+        value_layer = self.act(value_layer)
+        value_layer = self.transpose_for_vscores(value_layer) #(1stage) 1, 1, 49, 128 / (2stage) 1, 2, 49, 128
+        
         # Take the dot product between "query" and "key" to get the raw attention scores.
-        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
-
+        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2)) # (1stage) 1, 1, 16384, 49 / (2stage) 1, 2, 4096, 49
+        # (1, 1, 16384, 64) * (1, 1, 64, 49) / (1, 2, 4096, 64) * (1, 2, 64, 49)
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
 
         # Normalize the attention scores to probabilities.
@@ -227,14 +238,25 @@ class SegformerEfficientSelfAttention(nn.Module):
         # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
-        context_layer = torch.matmul(attention_probs, value_layer)
-
-        context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
-        new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
-        context_layer = context_layer.view(new_context_layer_shape)
-
-        # nodense change1
-        #outputs = (context_layer, attention_probs) if output_attentions else (context_layer,)
+        context_layer = torch.matmul(attention_probs, value_layer) # (1stage) 1, 1, 16384, 128/ (2stage) 1, 2, 4096, 128
+        
+        context_layer = self.unvalue(context_layer) # (1stage) 1, 1, 16384, 64 / (2stage) 1, 2, 4096, 64
+        context_layer = context_layer.permute(0,3,1,2).contiguous() # (1stage) 1, 64, 1, 16384 / (2stage) 1, 64, 2, 4096
+        _context_layer = context_layer[:]# (1stage) 1, 64, 1, 16384 / (2stage) 1, 64, 2, 4096
+        # dwconv - norm&activation
+        context_layer = self.DWconv(context_layer)
+        context_layer = context_layer.reshape(batch_size, num_channels, -1).permute(0, 2, 1) # (1stage) 1, 16384, 64 / (2stage) 1, 4096, 128
+        context_layer = self.act(self.norm2(context_layer))# (1stage) 1, 16384, 64 / (2stage) 1, 4096, 128
+        
+        context_layer = context_layer.reshape(batch_size, self.attention_head_size, self.num_attention_heads, -1) # (1stage) 1, 64, 1, 16384 / (2stage) 1, 64, 2, 4096
+        context_layer = context_layer + _context_layer #1, 64, 2, 4096 / 1, 128, 1, 4096
+        
+        context_layer = self.conv(context_layer)
+        context_layer = context_layer.reshape(batch_size, num_channels, -1).permute(0, 2, 1) # 1, 16384, 64
+        context_layer = self.act(self.norm2(context_layer))
+        
+        
+        context_layer = _x + context_layer
         outputs = (context_layer, )
 
         return outputs
@@ -253,13 +275,14 @@ class SegformerEfficientSelfAttention(nn.Module):
 
 
 class SegformerAttention(nn.Module):
-    def __init__(self, config, hidden_size, num_attention_heads, sequence_reduction_ratio):
+    def __init__(self, config, hidden_size, num_attention_heads, sequence_reduction_ratio, expansion_ratio):
         super().__init__()
         self.self = SegformerEfficientSelfAttention(
             config=config,
             hidden_size=hidden_size,
             num_attention_heads=num_attention_heads,
             sequence_reduction_ratio=sequence_reduction_ratio,
+            expansion_ratio= expansion_ratio,
         )
         # self.output = SegformerSelfOutput(config, hidden_size=hidden_size)
         self.pruned_heads = set()
@@ -332,7 +355,7 @@ class SegformerMixFFN(nn.Module):
 class SegformerLayer(nn.Module):
     """This corresponds to the Block class in the original implementation."""
 
-    def __init__(self, config, hidden_size, num_attention_heads, drop_path, sequence_reduction_ratio, mlp_ratio):
+    def __init__(self, config, hidden_size, num_attention_heads, drop_path, sequence_reduction_ratio, expansion_ratio, mlp_ratio):
         super().__init__()
         self.layer_norm_1 = nn.LayerNorm(hidden_size)
         self.attention = SegformerAttention(
@@ -340,6 +363,7 @@ class SegformerLayer(nn.Module):
             hidden_size=hidden_size,
             num_attention_heads=num_attention_heads,
             sequence_reduction_ratio=sequence_reduction_ratio,
+            expansion_ratio=expansion_ratio,
         )
         self.drop_path = SegformerDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         self.layer_norm_2 = nn.LayerNorm(hidden_size)
@@ -409,6 +433,7 @@ class SegformerEncoder(nn.Module):
                         num_attention_heads=config.num_attention_heads[i],
                         drop_path=drop_path_decays[cur + j],
                         sequence_reduction_ratio=config.sr_ratios[i],
+                        expansion_ratio = config.exp_ratios[i],
                         mlp_ratio=config.mlp_ratios[i],
                     )
                 )
@@ -721,7 +746,7 @@ class SegformerDecodeHead(SegformerPreTrainedModel):
         self.dropout = nn.Dropout(config.classifier_dropout_prob)
         self.classifier = nn.Conv2d(config.decoder_hidden_size, config.num_labels, kernel_size=1)
         
-        self.weights = [nn.parameter.Parameter(torch.ones(1).cuda()) for _ in range(4)]
+        self.weights = [nn.parameter.Parameter(torch.ones(1)) for _ in range(4)]
 
         self.config = config
 
