@@ -3,6 +3,7 @@ dataset_path/
 __pycache__/
 result/
 mod_segformer/
+custom_2/
 .ipynb_checkpoints/
 *.ipynb
 *.pt

@@ -18,6 +18,7 @@
 import math
 from typing import Optional, Tuple, Union
 
+import numpy as np
 import torch
 import torch.utils.checkpoint
 from torch import nn, Tensor
@@ -145,6 +146,16 @@ class SegformerOverlapPatchEmbeddings(nn.Module):
         embeddings = self.layer_norm(embeddings)
         return embeddings, height, width
 
+class SegformerTokenMixerPooling(nn.Module):
+    def __init__(self, pool_size=3):
+        super().__init__()
+        self.pool = nn.AvgPool2d(
+            pool_size, stride=1, 
+            padding=pool_size//2,
+            count_include_pad=False,
+        )
+    def forward(self, x):
+        return self.pool(x) - x
 
 class SegformerEfficientSelfAttention(nn.Module):
     """SegFormer's efficient self-attention mechanism. Employs the sequence reduction process introduced in the [PvT
@@ -379,6 +390,41 @@ class SegformerMixFFN(nn.Module):
         hidden_states = self.dropout(hidden_states)
         return hidden_states
 
+class SegformerPoolMixFFN(nn.Module):
+    def __init__(self, config, in_features, hidden_features=None, out_features=None):
+        super().__init__()
+        out_features = out_features or in_features
+        #self.dense1 = nn.Linear(in_features, hidden_features)
+        self.conv1 = nn.Conv2d(in_features, hidden_features, 1)
+        #self.dwconv = SegformerDWConv(hidden_features)
+        if isinstance(config.hidden_act, str):
+            self.intermediate_act_fn = ACT2FN[config.hidden_act]
+        else:
+            self.intermediate_act_fn = config.hidden_act
+        #self.dense2 = nn.Linear(hidden_features, out_features)
+        self.conv2 = nn.Conv2d(hidden_features, out_features, 1)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+
+    def forward(self, hidden_states, height, width):
+        #hidden_states = self.dense1(hidden_states)
+        #batch_size, seq_len, num_channels = hidden_states.shape
+        #hidden_states = hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width)
+        hidden_states = self.conv1(hidden_states)
+        #hidden_states = hidden_states.flatten(2).transpose(1, 2)
+
+        #hidden_states = self.dwconv(hidden_states, height, width)
+        hidden_states = self.intermediate_act_fn(hidden_states)
+        hidden_states = self.dropout(hidden_states)
+
+        #hidden_states = self.dense2(hidden_states)
+        #batch_size, seq_len, num_channels = hidden_states.shape
+        #hidden_states = hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width)
+        hidden_states = self.conv2(hidden_states)
+        #hidden_states = hidden_states.flatten(2).transpose(1, 2)
+
+        hidden_states = self.dropout(hidden_states)
+        #print(hidden_states.shape)
+        return hidden_states
 
 class SegformerLayer(nn.Module):
     """This corresponds to the Block class in the original implementation."""
@@ -420,6 +466,78 @@ class SegformerLayer(nn.Module):
         layer_output = self.layer_norm_2(mlp_output + hidden_states + hidden_states_)
 
         outputs = (layer_output,) + outputs
+        hidden_states
+        return outputs
+
+class GroupNorm(nn.GroupNorm):
+    """
+    Group Normalization with 1 group.
+    Input: tensor in shape [B, C, H, W]
+    """
+    def __init__(self, num_channels, **kwargs):
+        super().__init__(1, num_channels, **kwargs)
+
+class SegformerPoolLayer(nn.Module):
+    """This corresponds to the Block class in the original implementation."""
+
+    def __init__(self, config, hidden_size, num_attention_heads, drop_path, sequence_reduction_ratio, mlp_ratio):
+        super().__init__()
+        #self.layer_norm_1 = nn.LayerNorm(hidden_size)
+        #self.attention = SegformerAttention(
+        #    config,
+        #    hidden_size=hidden_size,
+        #    num_attention_heads=num_attention_heads,
+        #    sequence_reduction_ratio=sequence_reduction_ratio,
+        #)
+        self.pooling = SegformerTokenMixerPooling()
+        self.drop_path = SegformerDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+        self.norm_2 = GroupNorm(hidden_size)
+        self.norm_3 = GroupNorm(hidden_size)
+        mlp_hidden_size = int(hidden_size * mlp_ratio)
+        self.mlp = SegformerPoolMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
+        layer_scale_init_value = 1e-5
+        self.layer_scale_1 = nn.Parameter(
+            layer_scale_init_value * torch.ones((hidden_size)), requires_grad=True)
+        self.layer_scale_2 = nn.Parameter(
+            layer_scale_init_value * torch.ones((hidden_size)), requires_grad=True)
+
+    def forward(self, hidden_states, height, width, output_attentions=False):
+        #self_attention_outputs = self.attention(
+        #    self.layer_norm_1(hidden_states),  # in Segformer, layernorm is applied before self-attention
+        #    height,
+        #    width,
+        #    output_attentions=output_attentions,
+        #)
+
+        #attention_output = self_attention_outputs[0]
+        #outputs = self_attention_outputs[1:]  # add self attentions if we output attention weights
+
+        # first residual connection (with stochastic depth)
+        #attention_output = self.drop_path(attention_output)
+        #hidden_states = attention_output + hidden_states
+        #print(hidden_states.shape)
+        batch_size, seq_len, num_channels = hidden_states.shape
+        #print(hidden_states.shape)
+        #print(self.layer_scale_1.shape)
+        #print(self.layer_scale_1.unsqueeze(-1).unsqueeze(-1).shape)
+        hidden_states = hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width)
+        pooling_output = self.pooling(self.norm_2(hidden_states))
+        #print(pooling_output.shape)
+
+        pooling_output = self.drop_path(self.layer_scale_1.unsqueeze(-1).unsqueeze(-1) * pooling_output)
+        #print(hidden_states.shape)
+        hidden_states = pooling_output + hidden_states
+
+        mlp_output = self.mlp(self.norm_3(hidden_states), height, width)
+        #print(hidden_states.shape)
+
+        # second residual connection (with stochastic depth)
+        mlp_output = self.drop_path(self.layer_scale_2.unsqueeze(-1).unsqueeze(-1) * mlp_output)
+        layer_output = mlp_output + hidden_states
+        #print(layer_output.shape)
+        layer_output = layer_output.flatten(2).transpose(1, 2)
+        #print(layer_output.shape)
+        outputs = (layer_output,) #+ outputs
 
         return outputs
 
@@ -453,9 +571,23 @@ class SegformerEncoder(nn.Module):
             layers = []
             if i != 0:
                 cur += config.depths[i - 1]
+                if i >= 2:
+                    for j in range(config.depths[i]):
+                        layers.append(
+                            SegformerLayer(
+                                config,
+                                hidden_size=config.hidden_sizes[i],
+                                num_attention_heads=config.num_attention_heads[i],
+                                drop_path=drop_path_decays[cur + j],
+                                sequence_reduction_ratio=config.sr_ratios[i],
+                                mlp_ratio=config.mlp_ratios[i],
+                            )
+                        )
+                    blocks.append(nn.ModuleList(layers))
+                    continue
             for j in range(config.depths[i]):
                 layers.append(
-                    SegformerLayer(
+                    SegformerPoolLayer(
                         config,
                         hidden_size=config.hidden_sizes[i],
                         num_attention_heads=config.num_attention_heads[i],
