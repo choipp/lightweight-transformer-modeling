@@ -186,9 +186,6 @@ class SegformerEfficientSelfAttention(nn.Module):
 
 
         self.unvalue = nn.Linear(int(self.attention_head_size*self.lambdaV), self.attention_head_size) # ! external args which replace self.hidden_size*2
-        self.DWconv = nn.Conv2d(self.attention_head_size, self.attention_head_size, kernel_size=3, stride=1, padding=1, bias=True, groups=self.attention_head_size)
-        self.norm2 = nn.LayerNorm(self.all_head_size)
-        self.conv = nn.Conv2d(self.attention_head_size, self.attention_head_size, kernel_size=1, stride=1,padding=0)
         
     def transpose_for_scores(self, hidden_states):
         new_shape = hidden_states.size()[:-1] + (self.num_attention_heads, self.attention_head_size) # ([1, 2, 5, 8], 64)
@@ -207,8 +204,6 @@ class SegformerEfficientSelfAttention(nn.Module):
         width,
         output_attentions=False,
     ):
-        _x = hidden_states[:] # 1, 16384, 64
-        
         query_layer = self.transpose_for_scores(hidden_states) # 1, 16384, 64
 
         batch_size, seq_len, num_channels = hidden_states.shape # (1stage) 1, 16384, 64 / (2stage) 1, 4096, 128
@@ -241,25 +236,16 @@ class SegformerEfficientSelfAttention(nn.Module):
         context_layer = torch.matmul(attention_probs, value_layer) # (1stage) 1, 1, 16384, 128/ (2stage) 1, 2, 4096, 128
         
         context_layer = self.unvalue(context_layer) # (1stage) 1, 1, 16384, 64 / (2stage) 1, 2, 4096, 64
-        context_layer = context_layer.permute(0,3,1,2).contiguous() # (1stage) 1, 64, 1, 16384 / (2stage) 1, 64, 2, 4096
-        _context_layer = context_layer[:]# (1stage) 1, 64, 1, 16384 / (2stage) 1, 64, 2, 4096
-        # dwconv - norm&activation
-        context_layer = self.DWconv(context_layer)
-        context_layer = context_layer.reshape(batch_size, num_channels, -1).permute(0, 2, 1) # (1stage) 1, 16384, 64 / (2stage) 1, 4096, 128
-        context_layer = self.act(self.norm2(context_layer))# (1stage) 1, 16384, 64 / (2stage) 1, 4096, 128
         
-        context_layer = context_layer.reshape(batch_size, self.attention_head_size, self.num_attention_heads, -1) # (1stage) 1, 64, 1, 16384 / (2stage) 1, 64, 2, 4096
-        context_layer = context_layer + _context_layer #1, 64, 2, 4096 / 1, 128, 1, 4096
-        
-        context_layer = self.conv(context_layer)
-        context_layer = context_layer.reshape(batch_size, num_channels, -1).permute(0, 2, 1) # 1, 16384, 64
-        context_layer = self.act(self.norm2(context_layer))
-        
-        
-        context_layer = _x + context_layer
+        context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
+        new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
+        context_layer = context_layer.view(new_context_layer_shape)
+
         outputs = (context_layer, )
+        
 
         return outputs
+        
 
 
 # class SegformerSelfOutput(nn.Module):
@@ -328,27 +314,49 @@ class SegformerDWConv(nn.Module):
 
         return hidden_states
 
+class SegformerConv(nn.Module):
+    def __init__(self, dim=768):
+        super().__init__()
+        self.conv = nn.Conv2d(dim, dim, 1)
+
+    def forward(self, hidden_states, height, width):
+        batch_size, seq_len, num_channels = hidden_states.shape
+        hidden_states = hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width)
+        hidden_states = self.conv(hidden_states)
+        hidden_states = hidden_states.flatten(2).transpose(1, 2)
+
+        return hidden_states
+
 
 class SegformerMixFFN(nn.Module):
     def __init__(self, config, in_features, hidden_features=None, out_features=None):
         super().__init__()
         out_features = out_features or in_features
-        self.dense1 = nn.Linear(in_features, hidden_features)
-        self.dwconv = SegformerDWConv(hidden_features)
+        self.dwconv = SegformerDWConv(in_features)
+        self.norm = nn.LayerNorm(in_features)
         if isinstance(config.hidden_act, str):
             self.intermediate_act_fn = ACT2FN[config.hidden_act]
         else:
             self.intermediate_act_fn = config.hidden_act
-        self.dense2 = nn.Linear(hidden_features, out_features)
+        self.conv1 = SegformerConv(out_features)
+        self.norm2 = nn.LayerNorm(out_features)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, hidden_states, height, width):
-        hidden_states = self.dense1(hidden_states)
+        
+        x = hidden_states[:]
         hidden_states = self.dwconv(hidden_states, height, width)
+        hidden_states = self.norm(hidden_states)
+        hidden_states = self.intermediate_act_fn(hidden_states)
+        
+        hidden_states = x + hidden_states
+        
+        hidden_states = self.dropout(hidden_states)
+        hidden_states = self.conv1(hidden_states, height, width)
+        hidden_states = self.norm2(hidden_states)
         hidden_states = self.intermediate_act_fn(hidden_states)
         hidden_states = self.dropout(hidden_states)
-        hidden_states = self.dense2(hidden_states)
-        hidden_states = self.dropout(hidden_states)
+        
         return hidden_states
 
 
@@ -367,31 +375,33 @@ class SegformerLayer(nn.Module):
         )
         self.drop_path = SegformerDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         self.layer_norm_2 = nn.LayerNorm(hidden_size)
-        mlp_hidden_size = int(hidden_size * mlp_ratio)
-        self.mlp = SegformerMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
+        #mlp_hidden_size = int(hidden_size * mlp_ratio)
+        self.mlp = SegformerMixFFN(config, in_features=hidden_size, hidden_features=None)
 
     def forward(self, hidden_states, height, width, output_attentions=False):
+        
+        x = hidden_states[:]
         self_attention_outputs = self.attention(
             self.layer_norm_1(hidden_states),  # in Segformer, layernorm is applied before self-attention
             height,
             width,
             output_attentions=output_attentions,
         )
-
         attention_output = self_attention_outputs[0]
-        outputs = self_attention_outputs[1:]  # add self attentions if we output attention weights
+        #outputs = self_attention_outputs[1:]  # add self attentions if we output attention weights
 
         # first residual connection (with stochastic depth)
         attention_output = self.drop_path(attention_output)
-        hidden_states = attention_output + hidden_states
+        #hidden_states = attention_output + hidden_states
 
-        mlp_output = self.mlp(self.layer_norm_2(hidden_states), height, width)
+        mlp_output = self.mlp(self.layer_norm_2(attention_output), height, width)
 
         # second residual connection (with stochastic depth)
         mlp_output = self.drop_path(mlp_output)
-        layer_output = mlp_output + hidden_states
-
-        outputs = (layer_output,) + outputs
+        #layer_output = mlp_output + hidden_states
+        layer_output = mlp_output + x
+        
+        outputs = (layer_output,)
 
         return outputs
 
