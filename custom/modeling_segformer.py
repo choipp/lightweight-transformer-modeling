@@ -188,7 +188,7 @@ class SegformerEfficientSelfAttention(nn.Module):
         #     )
         #     self.layer_norm = nn.LayerNorm(hidden_size)
         self.pool = nn.AdaptiveAvgPool2d(7)
-        self.sr = nn.Conv2d(hidden_size, hidden_size, kernel_size=1, stride=1)
+        # self.sr = nn.Conv2d(hidden_size, hidden_size, kernel_size=1, stride=1)
         self.norm = nn.LayerNorm(hidden_size)
         self.act = nn.GELU()
 
@@ -218,7 +218,8 @@ class SegformerEfficientSelfAttention(nn.Module):
 
         batch_size, seq_len, num_channels = hidden_states.shape
         hidden_states = hidden_states.permute(0, 2, 1).reshape(batch_size, num_channels, height, width)
-        hidden_states = self.sr(self.pool(hidden_states))
+        # hidden_states = self.sr(self.pool(hidden_states))
+        hidden_states = self.pool(hidden_states)
         hidden_states = hidden_states.reshape(batch_size, num_channels, -1).permute(0, 2, 1)
         hidden_states = self.norm(hidden_states)
         hidden_states = self.act(hidden_states)
