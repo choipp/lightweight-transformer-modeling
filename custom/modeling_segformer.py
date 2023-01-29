@@ -182,15 +182,22 @@ class SegformerEfficientSelfAttention(nn.Module):
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
         self.sr_ratio = sequence_reduction_ratio
+        #if sequence_reduction_ratio > 1:
+        #    self.sr = nn.Conv2d(
+        #        hidden_size, hidden_size, kernel_size=sequence_reduction_ratio, stride=sequence_reduction_ratio
+        #    )
+        #    self.layer_norm = nn.LayerNorm(hidden_size)
         if sequence_reduction_ratio > 1:
-            self.sr = nn.Conv2d(
-                hidden_size, hidden_size, kernel_size=sequence_reduction_ratio, stride=sequence_reduction_ratio
-            )
+            self.pool = nn.AvgPool2d(sequence_reduction_ratio, sequence_reduction_ratio)
+            self.sr = nn.Conv2d(hidden_size, hidden_size, kernel_size=1, stride=1)
             self.layer_norm = nn.LayerNorm(hidden_size)
 
     def transpose_for_scores(self, hidden_states):
+        #print(hidden_states.size()[:-1], self.num_attention_heads, self.attention_head_size)
         new_shape = hidden_states.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
+        #print(hidden_states.shape, new_shape)
         hidden_states = hidden_states.view(new_shape)
+        #print(hidden_states.permute(0, 2, 1, 3).shape)
         return hidden_states.permute(0, 2, 1, 3)
 
     def forward(
@@ -207,6 +214,7 @@ class SegformerEfficientSelfAttention(nn.Module):
             # Reshape to (batch_size, num_channels, height, width)
             hidden_states = hidden_states.permute(0, 2, 1).reshape(batch_size, num_channels, height, width)
             # Apply sequence reduction
+            hidden_states = self.pool(hidden_states)
             hidden_states = self.sr(hidden_states)
             # Reshape back to (batch_size, seq_len, num_channels)
             hidden_states = hidden_states.reshape(batch_size, num_channels, -1).permute(0, 2, 1)
@@ -295,6 +303,7 @@ class SegformerDWConv(nn.Module):
         self.dwconv = nn.Conv2d(dim, dim, 3, 1, 1, bias=True, groups=dim)
 
     def forward(self, hidden_states, height, width):
+        #print(hidden_states.shape)
         batch_size, seq_len, num_channels = hidden_states.shape
         hidden_states = hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width)
         hidden_states = self.dwconv(hidden_states)
@@ -308,6 +317,8 @@ class SegformerMixFFN(nn.Module):
         super().__init__()
         out_features = out_features or in_features
         self.dense1 = nn.Linear(in_features, hidden_features)
+        self.layer_norm_1 = nn.LayerNorm(hidden_features)
+        self.layer_norm_2 = nn.LayerNorm(hidden_features)
         self.dwconv = SegformerDWConv(hidden_features)
         if isinstance(config.hidden_act, str):
             self.intermediate_act_fn = ACT2FN[config.hidden_act]
@@ -318,11 +329,11 @@ class SegformerMixFFN(nn.Module):
 
     def forward(self, hidden_states, height, width):
         hidden_states = self.dense1(hidden_states)
-        hidden_states = self.dwconv(hidden_states, height, width)
-        hidden_states = self.intermediate_act_fn(hidden_states)
-        hidden_states = self.dropout(hidden_states)
+        hidden_states = self.layer_norm_1(hidden_states)
+        hidden_states = self.intermediate_act_fn(self.layer_norm_2(hidden_states + self.dwconv(hidden_states, height, width)))
+        #hidden_states = self.dropout(hidden_states)
         hidden_states = self.dense2(hidden_states)
-        hidden_states = self.dropout(hidden_states)
+        #hidden_states = self.dropout(hidden_states)
         return hidden_states
 
 class SegformerPoolMixFFN(nn.Module):
@@ -331,25 +342,29 @@ class SegformerPoolMixFFN(nn.Module):
         out_features = out_features or in_features
         #self.dense1 = nn.Linear(in_features, hidden_features)
         self.conv1 = nn.Conv2d(in_features, hidden_features, 1)
-        #self.dwconv = SegformerDWConv(hidden_features)
-        if isinstance(config.hidden_act, str):
-            self.intermediate_act_fn = ACT2FN[config.hidden_act]
-        else:
-            self.intermediate_act_fn = config.hidden_act
+        self.dwconv = nn.Conv2d(hidden_features, hidden_features, 3, 1, 1, bias=True, groups=hidden_features)
+        self.norm_1 = GroupNorm(hidden_features)
+        self.norm_2 = GroupNorm(hidden_features)
+        self.intermediate_act_fn = nn.SiLU()
+        #if isinstance(config.hidden_act, str):
+        #    self.intermediate_act_fn = ACT2FN[config.hidden_act]
+        #else:
+        #    self.intermediate_act_fn = config.hidden_act
         #self.dense2 = nn.Linear(hidden_features, out_features)
         self.conv2 = nn.Conv2d(hidden_features, out_features, 1)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        #self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, hidden_states, height, width):
         #hidden_states = self.dense1(hidden_states)
         #batch_size, seq_len, num_channels = hidden_states.shape
         #hidden_states = hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width)
-        hidden_states = self.conv1(hidden_states)
         #hidden_states = hidden_states.flatten(2).transpose(1, 2)
 
+        hidden_states = self.conv1(hidden_states)
+        hidden_states = self.norm_1(hidden_states)
         #hidden_states = self.dwconv(hidden_states, height, width)
-        hidden_states = self.intermediate_act_fn(hidden_states)
-        hidden_states = self.dropout(hidden_states)
+        hidden_states = self.intermediate_act_fn(self.norm_2(hidden_states + self.dwconv(hidden_states)))
+        #hidden_states = self.dropout(hidden_states)
 
         #hidden_states = self.dense2(hidden_states)
         #batch_size, seq_len, num_channels = hidden_states.shape
@@ -357,7 +372,7 @@ class SegformerPoolMixFFN(nn.Module):
         hidden_states = self.conv2(hidden_states)
         #hidden_states = hidden_states.flatten(2).transpose(1, 2)
 
-        hidden_states = self.dropout(hidden_states)
+        #hidden_states = self.dropout(hidden_states)
         #print(hidden_states.shape)
         return hidden_states
 
@@ -426,8 +441,8 @@ class SegformerPoolLayer(nn.Module):
         #)
         self.pooling = SegformerTokenMixerPooling()
         self.drop_path = SegformerDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+        self.norm_1 = GroupNorm(hidden_size)
         self.norm_2 = GroupNorm(hidden_size)
-        self.norm_3 = GroupNorm(hidden_size)
         mlp_hidden_size = int(hidden_size * mlp_ratio)
         self.mlp = SegformerPoolMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
         layer_scale_init_value = 1e-5
@@ -456,14 +471,14 @@ class SegformerPoolLayer(nn.Module):
         #print(self.layer_scale_1.shape)
         #print(self.layer_scale_1.unsqueeze(-1).unsqueeze(-1).shape)
         hidden_states = hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width)
-        pooling_output = self.pooling(self.norm_2(hidden_states))
+        pooling_output = self.pooling(self.norm_1(hidden_states))
         #print(pooling_output.shape)
 
         pooling_output = self.drop_path(self.layer_scale_1.unsqueeze(-1).unsqueeze(-1) * pooling_output)
         #print(hidden_states.shape)
         hidden_states = pooling_output + hidden_states
 
-        mlp_output = self.mlp(self.norm_3(hidden_states), height, width)
+        mlp_output = self.mlp(self.norm_2(hidden_states), height, width)
         #print(hidden_states.shape)
 
         # second residual connection (with stochastic depth)
@@ -840,7 +855,7 @@ class SegformerDecodeHead(SegformerPreTrainedModel):
         self.dropout = nn.Dropout(config.classifier_dropout_prob)
         self.classifier = nn.Conv2d(config.decoder_hidden_size, config.num_labels, kernel_size=1)
 
-        self.weights = [nn.Parameter(torch.randn(1).cuda()) for _ in range(4)]
+        self.weights = [nn.Parameter(torch.randn(1)) for _ in range(4)]
 
         self.config = config
 
@@ -862,9 +877,11 @@ class SegformerDecodeHead(SegformerPreTrainedModel):
             encoder_hidden_state = encoder_hidden_state.reshape(batch_size, -1, height, width)
 
             # upsample
+            #print(encoder_hidden_state.shape)
             encoder_hidden_state = nn.functional.interpolate(
                 encoder_hidden_state, size=encoder_hidden_states[0].size()[2:], mode="bilinear", align_corners=False
             )
+            #print(encoder_hidden_state.shape)
             encoder_hidden_state = torch.mul(self.weights[idx], encoder_hidden_state)
             all_hidden_states += encoder_hidden_state
 
