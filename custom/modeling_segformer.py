@@ -138,13 +138,16 @@ class SegformerOverlapPatchEmbeddings(nn.Module):
         self.layer_norm = nn.LayerNorm(hidden_size)
 
     def forward(self, pixel_values):
+        #print(1, pixel_values.shape)
         embeddings = self.proj(pixel_values)
+        #print(2, embeddings.shape)
         _, _, height, width = embeddings.shape
         # (batch_size, num_channels, height, width) -> (batch_size, num_channels, height*width) -> (batch_size, height*width, num_channels)
         # this can be fed to a Transformer layer
         embeddings = embeddings.flatten(2).transpose(1, 2)
         embeddings = self.layer_norm(embeddings)
         return embeddings, height, width
+
 
 class SegformerTokenMixerPooling(nn.Module):
     def __init__(self, pool_size=3):
@@ -832,6 +835,118 @@ class SegformerMLP(nn.Module):
         return hidden_states
 
 
+class SegformerLearnableResizer(nn.Module):
+    def __init__(self, filters = 16, interpolation="bilinear", img_size=(512,512), channels=3):
+        super().__init__()
+        self.interpolation = interpolation
+        self.img_size=img_size
+        self.conv1 = nn.Conv2d(channels, filters, kernel_size=7, stride=1, padding=3)
+        self.act1 = nn.LeakyReLU(negative_slope=0.2)
+
+        self.conv2 = nn.Conv2d(filters, filters, kernel_size=1, stride=1, padding=0)
+        self.act2 = nn.LeakyReLU(negative_slope=0.2)
+        self.batch_norm1 = nn.BatchNorm2d(filters)
+
+        self.res_conv1 = nn.Conv2d(filters, filters, kernel_size=3, stride=1, padding=1, bias=False)
+        self.res_batch_norm1 = nn.BatchNorm2d(filters)
+        self.res_act1 = nn.LeakyReLU(negative_slope=0.2)
+
+        self.res_conv2 = nn.Conv2d(filters, filters, kernel_size=3, stride=1, padding=1, bias=False)
+        self.res_batch_norm2 = nn.BatchNorm2d(filters)
+
+        self.proj_conv = nn.Conv2d(filters, filters, kernel_size=3, stride=1, padding=1, bias=False)
+        self.batch_norm2 = nn.BatchNorm2d(filters)
+
+        self.resize_conv = nn.Conv2d(filters, channels, kernel_size=7, stride=1, padding=3)
+
+    def forward(self, pixel_values):
+        #print(pixel_values.shape)
+        naive_resize = nn.functional.interpolate(
+            pixel_values, size=self.img_size, mode=self.interpolation, align_corners=True
+        )
+
+        x = self.conv1(pixel_values)
+        #print(x.shape)
+        x = self.act1(x)
+
+        x = self.conv2(x)
+        x = self.act2(x)
+        x = self.batch_norm1(x)
+
+        bottleneck = nn.functional.interpolate(
+            x, size=self.img_size, mode=self.interpolation, align_corners=True
+        )
+
+        x = bottleneck + self.res_act1(self.res_batch_norm1(self.res_conv1(bottleneck)))
+
+        x = x + self.res_batch_norm2(self.res_conv2(x))
+
+        x = self.batch_norm2(self.proj_conv(x))
+
+        x = bottleneck + x
+
+        x = self.resize_conv(x) 
+        final_resize = x + naive_resize
+
+        return final_resize
+
+
+class SegformerLearnableResizerSmall(nn.Module):
+    def __init__(self, interpolation="bilinear", img_size=(128,128), channels=768):
+        super().__init__()
+        self.interpolation = interpolation
+        self.img_size=img_size
+        self.conv1 = nn.Conv2d(channels, channels, kernel_size=7, stride=1, padding=3, groups=channels)
+        self.act1 = nn.LeakyReLU(negative_slope=0.2)
+
+        self.conv2 = nn.Conv2d(channels, channels, kernel_size=1, stride=1, padding=0, groups=channels)
+        self.act2 = nn.LeakyReLU(negative_slope=0.2)
+        self.batch_norm1 = nn.BatchNorm2d(channels)
+
+        self.res_conv1 = nn.Conv2d(channels, channels, kernel_size=3, stride=1, padding=1, bias=False, groups=channels)
+        self.res_batch_norm1 = nn.BatchNorm2d(channels)
+        self.res_act1 = nn.LeakyReLU(negative_slope=0.2)
+
+        self.res_conv2 = nn.Conv2d(channels, channels, kernel_size=3, stride=1, padding=1, bias=False, groups=channels)
+        self.res_batch_norm2 = nn.BatchNorm2d(channels)
+
+        self.proj_conv = nn.Conv2d(channels, channels, kernel_size=3, stride=1, padding=1, bias=False, groups=channels)
+        self.batch_norm2 = nn.BatchNorm2d(channels)
+
+        self.resize_conv = nn.Conv2d(channels, channels, kernel_size=7, stride=1, padding=3, groups=channels)
+
+    def forward(self, pixel_values):
+        #print(pixel_values.shape)
+        naive_resize = nn.functional.interpolate(
+            pixel_values, size=self.img_size, mode=self.interpolation, align_corners=True
+        )
+
+        x = self.conv1(pixel_values)
+        #print(x.shape)
+        x = self.act1(x)
+
+        x = self.conv2(x)
+        x = self.act2(x)
+        x = self.batch_norm1(x)
+
+        bottleneck = nn.functional.interpolate(
+            x, size=self.img_size, mode=self.interpolation, align_corners=True
+        )
+
+        x = bottleneck + self.res_act1(self.res_batch_norm1(self.res_conv1(bottleneck)))
+
+        x = x + self.res_batch_norm2(self.res_conv2(x))
+
+        x = self.batch_norm2(self.proj_conv(x))
+
+        x = bottleneck + x
+
+        x = self.resize_conv(x) 
+        final_resize = x + naive_resize
+
+        return final_resize
+
+
 class SegformerDecodeHead(SegformerPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
@@ -854,16 +969,21 @@ class SegformerDecodeHead(SegformerPreTrainedModel):
 
         self.dropout = nn.Dropout(config.classifier_dropout_prob)
         self.classifier = nn.Conv2d(config.decoder_hidden_size, config.num_labels, kernel_size=1)
-
         self.weights = [nn.Parameter(torch.randn(1)) for _ in range(4)]
 
         self.config = config
+
+        resizers = []
+        for _ in range(config.num_encoder_blocks):
+            resizer = SegformerLearnableResizerSmall(img_size=(128,128), channels=config.decoder_hidden_size)
+            resizers.append(resizer)
+        self.resizer = nn.ModuleList(resizers)
 
     def forward(self, encoder_hidden_states):
         batch_size = encoder_hidden_states[-1].shape[0]
 
         all_hidden_states = 0
-        for idx, (encoder_hidden_state, mlp) in enumerate(zip(encoder_hidden_states, self.linear_c)):
+        for idx, (encoder_hidden_state, mlp, resizer) in enumerate(zip(encoder_hidden_states, self.linear_c, self.resizer)):
             if self.config.reshape_last_stage is False and encoder_hidden_state.ndim == 3:
                 height = width = int(math.sqrt(encoder_hidden_state.shape[-1]))
                 encoder_hidden_state = (
@@ -878,9 +998,10 @@ class SegformerDecodeHead(SegformerPreTrainedModel):
 
             # upsample
             #print(encoder_hidden_state.shape)
-            encoder_hidden_state = nn.functional.interpolate(
-                encoder_hidden_state, size=encoder_hidden_states[0].size()[2:], mode="bilinear", align_corners=False
-            )
+            #encoder_hidden_state = nn.functional.interpolate(
+            #    encoder_hidden_state, size=encoder_hidden_states[0].size()[2:], mode="bilinear", align_corners=False
+            #)
+            encoder_hidden_state = resizer(encoder_hidden_state)
             #print(encoder_hidden_state.shape)
             encoder_hidden_state = torch.mul(self.weights[idx], encoder_hidden_state)
             all_hidden_states += encoder_hidden_state
@@ -905,6 +1026,7 @@ class SegformerForSemanticSegmentation(SegformerPreTrainedModel):
         super().__init__(config)
         self.segformer = SegformerModel(config)
         self.decode_head = SegformerDecodeHead(config)
+        self.resizer = SegformerLearnableResizer(img_size=(512,512))
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -950,6 +1072,10 @@ class SegformerForSemanticSegmentation(SegformerPreTrainedModel):
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
 
+        #print(pixel_values.shape)
+        #if pixel_values.size()[2:] != (512, 512):
+        pixel_values = self.resizer(pixel_values)
+        #print(pixel_values.shape)
         outputs = self.segformer(
             pixel_values,
             output_attentions=output_attentions,
