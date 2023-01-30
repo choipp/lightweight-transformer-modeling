@@ -346,10 +346,10 @@ class SegformerDWConv(nn.Module):
         )
 
     def forward(self, hidden_states, height, width):
-        batch_size, seq_len, num_channels = hidden_states.shape
-        hidden_states = hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width)
+        # batch_size, seq_len, num_channels = hidden_states.shape
+        # hidden_states = hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width)
         hidden_states = self.mixconv(hidden_states)
-        hidden_states = hidden_states.flatten(2).transpose(1, 2)
+        # hidden_states = hidden_states.flatten(2).transpose(1, 2)
 
         return hidden_states
 
@@ -359,9 +359,9 @@ class SegformerMixFFN(nn.Module):
         super().__init__()
         out_features = out_features or in_features
         self.conv_1 = nn.Conv2d(in_features, hidden_features, 1)
-        self.norm_1 = nn.LayerNorm(hidden_features)
+        self.norm_1 = nn.GroupNorm(1, hidden_features)
         self.dwconv = SegformerDWConv(hidden_features)
-        self.norm_2 = nn.LayerNorm(hidden_features)
+        self.norm_2 = nn.GroupNorm(1, hidden_features)
         if isinstance(config.hidden_act, str):
             self.intermediate_act_fn = ACT2FN[config.hidden_act]
         else:
@@ -373,11 +373,9 @@ class SegformerMixFFN(nn.Module):
         batch_size, seq_len, num_channels = hidden_states.shape
         hidden_states = hidden_states.transpose(1, 2).view(batch_size, -1, height, width)
         hidden_states = self.conv_1(hidden_states)
-        hidden_states = hidden_states.flatten(2).transpose(1, 2)
         hidden_states = self.dwconv(self.norm_1(hidden_states), height, width)
         hidden_states = self.intermediate_act_fn(self.norm_2(hidden_states))
         # hidden_states = self.dropout(hidden_states)
-        hidden_states = hidden_states.transpose(1, 2).view(batch_size, -1, height, width)
         hidden_states = self.conv_2(hidden_states)
         # hidden_states = self.dropout(hidden_states)
         hidden_states = hidden_states.flatten(2).transpose(1, 2)
