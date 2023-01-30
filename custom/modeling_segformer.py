@@ -165,10 +165,12 @@ class SegformerEfficientSelfAttention(nn.Module):
         
         self.attention_head_size = int(self.hidden_size / self.num_attention_heads) # [64, 128, 320, 512] / [1, 2, 5, 8] = 64
         self.all_head_size = self.num_attention_heads * self.attention_head_size # [64, 128, 320, 512]
+        self.v_hidden = int(self.attention_head_size*self.lambdaV)
 
         #self.query = nn.Linear(self.hidden_size, self.all_head_size)
         #self.key = nn.Linear(self.hidden_size, self.all_head_size)
-        self.value = nn.Linear(self.all_head_size, int(self.all_head_size*self.lambdaV)) # ! external args which replace self.hidden_size*2
+        # self.value = nn.Linear(self.all_head_size, int(self.all_head_size*self.lambdaV)) # ! external args which replace self.hidden_size*2
+        self.value = nn.Conv2d(self.all_head_size, self.v_hidden, 1)
 
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
@@ -179,13 +181,11 @@ class SegformerEfficientSelfAttention(nn.Module):
         #     )
         #     self.layer_norm = nn.LayerNorm(hidden_size)
         self.pool = nn.AdaptiveAvgPool2d(7)
-        self.v_hidden = int(self.all_head_size*self.lambdaV)
-        self.sr = nn.Conv2d(self.v_hidden, self.v_hidden, kernel_size=1, stride=1)
-        self.norm = nn.LayerNorm(self.v_hidden)
-        self.act = nn.GELU()
+        # self.sr = nn.Conv2d(self.hidden_size, self.hidden_size, kernel_size=1, stride=1)
+        # self.norm = nn.LayerNorm(self.hidden_size)
+        # self.act = nn.GELU()
 
 
-        self.unvalue = nn.Linear(int(self.attention_head_size*self.lambdaV), self.attention_head_size) # ! external args which replace self.hidden_size*2
         
     def transpose_for_scores(self, hidden_states):
         new_shape = hidden_states.size()[:-1] + (self.num_attention_heads, self.attention_head_size) # ([1, 2, 5, 8], 64)
@@ -204,44 +204,45 @@ class SegformerEfficientSelfAttention(nn.Module):
         width,
         output_attentions=False,
     ):
-        query_layer = self.transpose_for_scores(hidden_states) # 1, 16384, 64
+        query_layer = self.transpose_for_scores(hidden_states) # 1, 1, 16384, 64 / 1, 2, 4096, 64
 
         batch_size, seq_len, num_channels = hidden_states.shape # (1stage) 1, 16384, 64 / (2stage) 1, 4096, 128
-        hidden_states = hidden_states.permute(0, 2, 1).reshape(batch_size, num_channels, height, width) # 1, 64, 256, 256
-        hidden_states = self.pool(hidden_states) # 1, 64, 49(7, 7)
-        hidden_states = hidden_states.reshape(batch_size, num_channels, -1).permute(0, 2, 1) # 1, 49, 64
-        key_layer = self.transpose_for_scores(hidden_states) # (1stage) 1, 1, 49, 64/ (2stage) 1, 2, 49, 64 / (3stage) 1, 5, 49, 64
+        hidden_states = hidden_states.permute(0, 2, 1).reshape(batch_size, num_channels, height, width)
+        hidden_states = self.pool(hidden_states)
         
+        value_layer = self.value(hidden_states) # (1stage) 4, 128, 128, 128
+        hidden_states = hidden_states.reshape(batch_size, num_channels, -1).permute(0, 2, 1)
         
-        value_layer = self.value(hidden_states) # (1stage) 1, 49, 128
-        value_layer = value_layer.permute(0, 2, 1).reshape(batch_size, self.v_hidden, 7, 7) # 1, 128, 7, 7
-        value_layer = self.sr(value_layer)
-        value_layer = value_layer.reshape(batch_size, self.v_hidden, -1).permute(0, 2, 1) # 1, 49, 128
-        value_layer = self.norm(value_layer)
-        value_layer = self.act(value_layer)
-        value_layer = self.transpose_for_vscores(value_layer) #(1stage) 1, 1, 49, 128 / (2stage) 1, 2, 49, 128
+        key_layer = self.transpose_for_scores(hidden_states)
+        # 1, 1, 49, 64
+        
+        value_layer = value_layer.reshape(batch_size, 1, self.v_hidden, -1).permute(0, 1, 3, 2) 
+        # value_layer = self.norm(value_layer)
+        # value_layer = self.act(value_layer)
+        # value_layer = self.transpose_for_vscores(value_layer) # (1stage) 1, 1, 16384, 128 / (2stage) 1, 2, 49, 192
         
         # Take the dot product between "query" and "key" to get the raw attention scores.
-        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2)) # (1stage) 1, 1, 16384, 49 / (2stage) 1, 2, 4096, 49
-        # (1, 1, 16384, 64) * (1, 1, 64, 49) / (1, 2, 4096, 64) * (1, 2, 64, 49)
-        attention_scores = attention_scores / math.sqrt(self.attention_head_size)
+        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2)) 
+        # torch.Size([1, 1, 16384, 64]) * torch.Size([1, 1, 64, 49]) => torch.Size([1, 1, 16384, 49])
+        # 1, 2, 4096, 49
+        attention_scores = attention_scores / math.sqrt(self.attention_head_size) # 1, 1, 16384, 16384 / 1, 2, 4096, 4096
 
         # Normalize the attention scores to probabilities.
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
         # This is actually dropping out entire tokens to attend to, which might
         # seem a bit unusual, but is taken from the original Transformer paper.
-        attention_probs = self.dropout(attention_probs)
+        attention_probs = self.dropout(attention_probs) # 4, 1, 16384, 16384
 
-        context_layer = torch.matmul(attention_probs, value_layer) # (1stage) 1, 1, 16384, 128/ (2stage) 1, 2, 4096, 128
+        context_layer = torch.matmul(attention_probs, value_layer) # (1stage) 4, 1, 16384, 128/ (2stage) 1, 2, 4096, 160
+        # torch.Size([1, 1, 16384, 49]) * torch.Size([1, 1, 49, 128])
         
-        context_layer = self.unvalue(context_layer) # (1stage) 1, 1, 16384, 64 / (2stage) 1, 2, 4096, 64
-        
-        context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
-        new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
+        context_layer = context_layer.permute(0, 2, 1, 3).contiguous() # 1, 16384, 1, 128 / 1, 4096, 2, 160
+        new_context_layer_shape = context_layer.size()[:-2] + (self.v_hidden * self.num_attention_heads,) # 1, 16384, 64 / 1, 4096, 320
+
         context_layer = context_layer.view(new_context_layer_shape)
 
-        outputs = (context_layer, )
+        outputs = (context_layer, ) # 1, 4096, 320
         
 
         return outputs
@@ -308,16 +309,16 @@ class SegformerDWConv(nn.Module):
 
     def forward(self, hidden_states, height, width):
         batch_size, seq_len, num_channels = hidden_states.shape
-        hidden_states = hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width)
+        hidden_states = hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width) # 1, 128, 128, 128
         hidden_states = self.dwconv(hidden_states)
         hidden_states = hidden_states.flatten(2).transpose(1, 2)
 
         return hidden_states
 
 class SegformerConv(nn.Module):
-    def __init__(self, dim=768):
+    def __init__(self, in_dim=768, out_dim=768):
         super().__init__()
-        self.conv = nn.Conv2d(dim, dim, 1)
+        self.conv = nn.Conv2d(in_dim, out_dim, 1)
 
     def forward(self, hidden_states, height, width):
         batch_size, seq_len, num_channels = hidden_states.shape
@@ -329,16 +330,16 @@ class SegformerConv(nn.Module):
 
 
 class SegformerMixFFN(nn.Module):
-    def __init__(self, config, in_features, hidden_features=None, out_features=None):
+    def __init__(self, config, in_features, hidden_features=None, out_features=None, expansion_ratio=None):
         super().__init__()
         out_features = out_features or in_features
-        self.dwconv = SegformerDWConv(in_features)
-        self.norm = nn.LayerNorm(in_features)
+        self.dwconv = SegformerDWConv(int(in_features * expansion_ratio))
+        self.norm = nn.LayerNorm(int(in_features * expansion_ratio))
         if isinstance(config.hidden_act, str):
             self.intermediate_act_fn = ACT2FN[config.hidden_act]
         else:
             self.intermediate_act_fn = config.hidden_act
-        self.conv1 = SegformerConv(out_features)
+        self.conv1 = SegformerConv(int(in_features * expansion_ratio), out_features)
         self.norm2 = nn.LayerNorm(out_features)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
@@ -346,13 +347,15 @@ class SegformerMixFFN(nn.Module):
         
         x = hidden_states[:]
         hidden_states = self.dwconv(hidden_states, height, width)
+        hidden_states = x + hidden_states
+        
         hidden_states = self.norm(hidden_states)
         hidden_states = self.intermediate_act_fn(hidden_states)
         
-        hidden_states = x + hidden_states
         
         hidden_states = self.dropout(hidden_states)
         hidden_states = self.conv1(hidden_states, height, width)
+        
         hidden_states = self.norm2(hidden_states)
         hidden_states = self.intermediate_act_fn(hidden_states)
         hidden_states = self.dropout(hidden_states)
@@ -365,6 +368,7 @@ class SegformerLayer(nn.Module):
 
     def __init__(self, config, hidden_size, num_attention_heads, drop_path, sequence_reduction_ratio, expansion_ratio, mlp_ratio):
         super().__init__()
+        # self.layer_norm_1 = nn.GroupNorm(1, hidden_size)
         self.layer_norm_1 = nn.LayerNorm(hidden_size)
         self.attention = SegformerAttention(
             config,
@@ -374,27 +378,28 @@ class SegformerLayer(nn.Module):
             expansion_ratio=expansion_ratio,
         )
         self.drop_path = SegformerDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
-        self.layer_norm_2 = nn.LayerNorm(hidden_size)
+        # self.layer_norm_2 = nn.GroupNorm(1, hidden_size)
+        # self.layer_norm_2 = nn.LayerNorm(hidden_size)
         #mlp_hidden_size = int(hidden_size * mlp_ratio)
-        self.mlp = SegformerMixFFN(config, in_features=hidden_size, hidden_features=None)
+        self.mlp = SegformerMixFFN(config, in_features=hidden_size, hidden_features=None, expansion_ratio=expansion_ratio)
 
     def forward(self, hidden_states, height, width, output_attentions=False):
         
-        x = hidden_states[:]
+        x = hidden_states[:]  # 1, 16384, 64  
         self_attention_outputs = self.attention(
             self.layer_norm_1(hidden_states),  # in Segformer, layernorm is applied before self-attention
             height,
             width,
             output_attentions=output_attentions,
         )
-        attention_output = self_attention_outputs[0]
+        attention_output = self_attention_outputs[0] # 1, 16384, 128
         #outputs = self_attention_outputs[1:]  # add self attentions if we output attention weights
 
         # first residual connection (with stochastic depth)
-        attention_output = self.drop_path(attention_output)
+        attention_output = self.drop_path(attention_output) # 1, 16384, 128  
         #hidden_states = attention_output + hidden_states
-
-        mlp_output = self.mlp(self.layer_norm_2(attention_output), height, width)
+          
+        mlp_output = self.mlp(attention_output, height, width)
 
         # second residual connection (with stochastic depth)
         mlp_output = self.drop_path(mlp_output)
