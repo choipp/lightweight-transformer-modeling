@@ -233,15 +233,15 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--device', type=str, default='0', help='Select gpu to use')
     parser.add_argument('--lr', type=float, default=6e-5) # do not modify
-    parser.add_argument('--pretrain', type=str, default='/opt/ml/input/final-project-level3-cv-16/imagenet_pretrain/result/edgenext_xca/checkpoint295.pth')
-    parser.add_argument('--save_path', type=str, default='/opt/ml/input/final-project-level3-cv-16/result/edgenext_xca/')
-    parser.add_argument('--num_workers', type=int, default=6) 
+    parser.add_argument('--pretrain', type=str, default='nvidia/mit-b2')
+    parser.add_argument('--save_path', type=str, default='result/')
+    parser.add_argument('--num_workers', type=int, default=4) 
     parser.add_argument('--seed', type=int, default=1) # do not modify
     parser.add_argument('--batch_size', type=int, default=8) 
     parser.add_argument('--epochs', type=int, default=60) # do not modify
     parser.add_argument('--warmup_steps', type=int, default=1500) # do not modify
     parser.add_argument('--weight_decay', type=float, default=0.01) # do not modify      
-    parser.add_argument('--data_dir', type=str, default="/opt/ml/input/data/ADEChallengeData2016") 
+    parser.add_argument('--data_dir', type=str, default="/dataset_path") 
     parser.add_argument(
         '--log-level', type=str, choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
         dest='log_level', default='INFO',
@@ -264,5 +264,3 @@ if __name__ == "__main__":
     logging.propagate = False
     
     main(opt)
-    # pt = torch.load(opt.pretrain, map_location='cpu')
-    # print(pt)

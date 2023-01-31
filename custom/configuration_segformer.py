@@ -108,6 +108,7 @@ class SegformerConfig(PretrainedConfig):
         num_encoder_blocks=4,
         depths=[3, 4, 6, 3],
         sr_ratios=[8, 4, 2, 1],
+        exp_ratios=[2.0, 3.0, 4.0, 4.0], #add expansion ratio
         hidden_sizes=[64, 128, 320, 512],
         patch_sizes=[7, 3, 3, 3],
         strides=[4, 2, 2, 2],
@@ -138,6 +139,7 @@ class SegformerConfig(PretrainedConfig):
         self.num_encoder_blocks = num_encoder_blocks
         self.depths = depths
         self.sr_ratios = sr_ratios
+        self.exp_ratios = exp_ratios
         self.hidden_sizes = hidden_sizes
         self.patch_sizes = patch_sizes
         self.strides = strides

@@ -12,7 +12,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--data_dir", type=str,  default='/opt/ml/input/data/ADEChallengeData2016')
-    parser.add_argument('--pretrain', type=str, default='/opt/ml/input/Naver_BoostCamp_NOTA/result/baseline/best')
+    parser.add_argument('--pretrain', type=str, default='/opt/ml/input/final-project-level3-cv-16/result/mod_segformer/best')
     return parser.parse_args()
 
 

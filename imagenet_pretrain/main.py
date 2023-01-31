@@ -18,7 +18,7 @@ from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
 from timm.scheduler import create_scheduler
 from timm.optim import create_optimizer
 from timm.utils import NativeScaler, get_state_dict, ModelEma
-sys.path.append('/opt/ml/input/final_project_level3-cv-16/')
+sys.path.append('/opt/ml/input/final-project-level3-cv-16/')
 from custom import SegformerForImageClassification, SegformerConfig
 from datasets import build_dataset
 from engine import train_one_epoch, evaluate
@@ -32,7 +32,7 @@ import pdb
 def get_args_parser():
     parser = argparse.ArgumentParser('PVT training and evaluation script', add_help=False)
     parser.add_argument('--fp32-resume', action='store_true', default=False)
-    parser.add_argument('--batch-size', default=128, type=int)
+    parser.add_argument('--batch-size', default=256, type=int)
     parser.add_argument('--epochs', default=300, type=int)
 
     # Model parameters
@@ -142,7 +142,7 @@ def get_args_parser():
     parser.add_argument('--finetune', default='', help='finetune from checkpoint')
 
     # Dataset parameters
-    parser.add_argument('--data-path', default='/opt/ml/input/data/tiny-imagenet-200/', type=str,
+    parser.add_argument('--data-path', default='/opt/ml/input/final_project_level3-cv-16/dataset_path/tiny-imagenet-200/', type=str,
                         help='dataset path')
     parser.add_argument('--data-set', default='IMNET', choices=['CIFAR', 'TINY', 'IMNET', 'INAT', 'INAT19'],
                         type=str, help='Image Net dataset path')
@@ -151,7 +151,7 @@ def get_args_parser():
                         choices=['kingdom', 'phylum', 'class', 'order', 'supercategory', 'family', 'genus', 'name'],
                         type=str, help='semantic granularity')
 
-    parser.add_argument('--output_dir', default='./exp01',
+    parser.add_argument('--output_dir', default='/opt/ml/input/final_project_level3-cv-16/result/mod_segformer',
                         help='path where to save, empty for no saving')
     parser.add_argument('--device', default='cuda',
                         help='device to use for training / testing')
