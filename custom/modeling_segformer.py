@@ -165,7 +165,7 @@ class SegformerEfficientSelfAttention(nn.Module):
         
         self.attention_head_size = int(self.hidden_size / self.num_attention_heads) # [64, 128, 320, 512] / [1, 2, 5, 8] = 64
         self.all_head_size = self.num_attention_heads * self.attention_head_size # [64, 128, 320, 512]
-        self.v_hidden = int(self.attention_head_size*self.lambdaV)
+        self.v_hidden = int(self.all_head_size*self.lambdaV)
 
         #self.query = nn.Linear(self.hidden_size, self.all_head_size)
         #self.key = nn.Linear(self.hidden_size, self.all_head_size)
@@ -180,7 +180,7 @@ class SegformerEfficientSelfAttention(nn.Module):
         #         hidden_size, hidden_size, kernel_size=sequence_reduction_ratio, stride=sequence_reduction_ratio
         #     )
         #     self.layer_norm = nn.LayerNorm(hidden_size)
-        self.pool = nn.AdaptiveAvgPool2d(7)
+        self.pool = nn.AvgPool2d(5)
         # self.sr = nn.Conv2d(self.hidden_size, self.hidden_size, kernel_size=1, stride=1)
         # self.norm = nn.LayerNorm(self.hidden_size)
         # self.act = nn.GELU()
@@ -208,6 +208,7 @@ class SegformerEfficientSelfAttention(nn.Module):
 
         batch_size, seq_len, num_channels = hidden_states.shape # (1stage) 1, 16384, 64 / (2stage) 1, 4096, 128
         hidden_states = hidden_states.permute(0, 2, 1).reshape(batch_size, num_channels, height, width)
+        
         hidden_states = self.pool(hidden_states)
         
         value_layer = self.value(hidden_states) # (1stage) 4, 128, 128, 128
@@ -215,8 +216,7 @@ class SegformerEfficientSelfAttention(nn.Module):
         
         key_layer = self.transpose_for_scores(hidden_states)
         # 1, 1, 49, 64
-        
-        value_layer = value_layer.reshape(batch_size, 1, self.v_hidden, -1).permute(0, 1, 3, 2) 
+        value_layer = value_layer.reshape(batch_size, self.num_attention_heads, self.v_hidden // self.num_attention_heads, -1).permute(0, 1, 3, 2) 
         # value_layer = self.norm(value_layer)
         # value_layer = self.act(value_layer)
         # value_layer = self.transpose_for_vscores(value_layer) # (1stage) 1, 1, 16384, 128 / (2stage) 1, 2, 49, 192
@@ -238,12 +238,12 @@ class SegformerEfficientSelfAttention(nn.Module):
         # torch.Size([1, 1, 16384, 49]) * torch.Size([1, 1, 49, 128])
         
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous() # 1, 16384, 1, 128 / 1, 4096, 2, 160
-        new_context_layer_shape = context_layer.size()[:-2] + (self.v_hidden * self.num_attention_heads,) # 1, 16384, 64 / 1, 4096, 320
+        new_context_layer_shape = context_layer.size()[:-2] + (self.v_hidden,) # 1, 16384, 64 / 1, 4096, 320
 
         context_layer = context_layer.view(new_context_layer_shape)
 
         outputs = (context_layer, ) # 1, 4096, 320
-        
+        #sf 
 
         return outputs
         
