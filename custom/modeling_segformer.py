@@ -191,7 +191,7 @@ class SegformerEfficientSelfAttention(nn.Module):
         self.pool = nn.AdaptiveAvgPool2d(7)
         # self.sr = nn.Conv2d(hidden_size, hidden_size, kernel_size=1, stride=1)
         self.norm = nn.LayerNorm(hidden_size)
-        self.act = nn.GELU()
+        self.act = nn.ReLU6()
 
     def transpose_for_scores(self, hidden_states):
         new_shape = hidden_states.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
@@ -853,7 +853,7 @@ class SegformerDecodeHead(SegformerPreTrainedModel):
         )
         self.weights = nn.Parameter(torch.ones(config.num_encoder_blocks, 1))
         self.batch_norm = nn.BatchNorm2d(config.decoder_hidden_size)
-        self.activation = nn.ReLU()
+        self.activation = nn.ReLU6()
 
         self.dropout = nn.Dropout(config.classifier_dropout_prob)
         self.classifier = nn.Conv2d(config.decoder_hidden_size, config.num_labels, kernel_size=1)
