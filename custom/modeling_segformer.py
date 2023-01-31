@@ -434,8 +434,9 @@ class SegformerLayer(nn.Module):
         self.mlp = SegformerMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
 
     def forward(self, hidden_states, height, width, output_attentions=False):
+        hidden_states_ = hidden_states[:]
         self_attention_outputs = self.attention(
-            self.layer_norm_1(hidden_states),  # in Segformer, layernorm is applied before self-attention
+            hidden_states,  # in Segformer, layernorm is applied before self-attention
             height,
             width,
             output_attentions=output_attentions,
@@ -448,11 +449,11 @@ class SegformerLayer(nn.Module):
         attention_output = self.drop_path(attention_output)
         hidden_states = attention_output + hidden_states
 
-        mlp_output = self.mlp(self.layer_norm_2(hidden_states), height, width)
+        mlp_output = self.mlp(self.layer_norm_1(hidden_states), height, width)
 
         # second residual connection (with stochastic depth)
         mlp_output = self.drop_path(mlp_output)
-        layer_output = mlp_output + hidden_states
+        layer_output = self.layer_norm_2(mlp_output + hidden_states + hidden_states_)
 
         outputs = (layer_output,) + outputs
 
@@ -466,8 +467,8 @@ class SegformerPoolLayer(nn.Module):
         super().__init__()
         self.pooling = SegformerTokenMixerPooling()
         self.drop_path = SegformerDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+        self.norm_1 = nn.GroupNorm(1, hidden_size)
         self.norm_2 = nn.GroupNorm(1, hidden_size)
-        self.norm_3 = nn.GroupNorm(1, hidden_size)
         mlp_hidden_size = int(hidden_size * mlp_ratio)
         self.mlp = SegformerPoolMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
         layer_scale_init_value = 1e-5
@@ -480,16 +481,17 @@ class SegformerPoolLayer(nn.Module):
         # first residual connection (with stochastic depth)
         batch_size, seq_len, num_channels = hidden_states.shape
         hidden_states = hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width)
-        pooling_output = self.pooling(self.norm_2(hidden_states))
+        hidden_states_ = hidden_states[:]
+        pooling_output = self.pooling(hidden_states)
 
         pooling_output = self.drop_path(self.layer_scale_1.unsqueeze(-1).unsqueeze(-1) * pooling_output)
         hidden_states = pooling_output + hidden_states
 
-        mlp_output = self.mlp(self.norm_3(hidden_states), height, width)
+        mlp_output = self.mlp(self.norm_1(hidden_states), height, width)
 
         # second residual connection (with stochastic depth)
         mlp_output = self.drop_path(self.layer_scale_2.unsqueeze(-1).unsqueeze(-1) * mlp_output)
-        layer_output = mlp_output + hidden_states
+        layer_output = self.norm_2(mlp_output + hidden_states + hidden_states_)
         layer_output = layer_output.flatten(2).transpose(1, 2)
         outputs = (layer_output,)
 
@@ -549,9 +551,9 @@ class SegformerEncoder(nn.Module):
         self.block = nn.ModuleList(blocks)
 
         # Layer norms
-        self.layer_norm = nn.ModuleList(
-            [nn.LayerNorm(config.hidden_sizes[i]) for i in range(config.num_encoder_blocks)]
-        )
+        # self.layer_norm = nn.ModuleList(
+        #     [nn.LayerNorm(config.hidden_sizes[i]) for i in range(config.num_encoder_blocks)]
+        # )
 
     def forward(
         self,
@@ -566,8 +568,8 @@ class SegformerEncoder(nn.Module):
         batch_size = pixel_values.shape[0]
 
         hidden_states = pixel_values
-        for idx, x in enumerate(zip(self.patch_embeddings, self.block, self.layer_norm)):
-            embedding_layer, block_layer, norm_layer = x
+        for idx, x in enumerate(zip(self.patch_embeddings, self.block)):
+            embedding_layer, block_layer = x
             # first, obtain patch embeddings
             hidden_states, height, width = embedding_layer(hidden_states)
             # second, send embeddings through blocks
@@ -577,7 +579,7 @@ class SegformerEncoder(nn.Module):
                 if output_attentions:
                     all_self_attentions = all_self_attentions + (layer_outputs[1],)
             # third, apply layer norm
-            hidden_states = norm_layer(hidden_states)
+            # hidden_states = norm_layer(hidden_states)
             # fourth, optionally reshape back to (batch_size, num_channels, height, width)
             if idx != len(self.patch_embeddings) - 1 or (
                 idx == len(self.patch_embeddings) - 1 and self.config.reshape_last_stage
