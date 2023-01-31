@@ -144,6 +144,18 @@ class SegformerOverlapPatchEmbeddings(nn.Module):
         embeddings = embeddings.flatten(2).transpose(1, 2)
         embeddings = self.layer_norm(embeddings)
         return embeddings, height, width
+    
+    
+class SegformerTokenMixerPooling(nn.Module):
+    def __init__(self, pool_size=3):
+        super().__init__()
+        self.pool = nn.AvgPool2d(
+            pool_size, stride=1, 
+            padding=pool_size//2,
+            count_include_pad=False,
+        )
+    def forward(self, x):
+        return self.pool(x) - x
 
 
 class SegformerEfficientSelfAttention(nn.Module):
@@ -380,6 +392,28 @@ class SegformerMixFFN(nn.Module):
         # hidden_states = self.dropout(hidden_states)
         hidden_states = hidden_states.flatten(2).transpose(1, 2)
         return hidden_states
+    
+    
+class SegformerPoolMixFFN(nn.Module):
+    def __init__(self, config, in_features, hidden_features=None, out_features=None):
+        super().__init__()
+        out_features = out_features or in_features
+        self.conv1 = nn.Conv2d(in_features, hidden_features, 1)
+        self.norm_1 = nn.GroupNorm(1, hidden_features)
+        if isinstance(config.hidden_act, str):
+            self.intermediate_act_fn = ACT2FN[config.hidden_act]
+        else:
+            self.intermediate_act_fn = config.hidden_act
+        self.conv2 = nn.Conv2d(hidden_features, out_features, 1)
+        # self.dropout = nn.Dropout(config.hidden_dropout_prob)
+
+    def forward(self, hidden_states, height, width):
+        hidden_states = self.conv1(hidden_states)
+        hidden_states = self.intermediate_act_fn(self.norm_1(hidden_states))
+        # hidden_states = self.dropout(hidden_states)
+        hidden_states = self.conv2(hidden_states)
+        # hidden_states = self.dropout(hidden_states)
+        return hidden_states
 
 
 class SegformerLayer(nn.Module):
@@ -423,6 +457,43 @@ class SegformerLayer(nn.Module):
         outputs = (layer_output,) + outputs
 
         return outputs
+    
+    
+class SegformerPoolLayer(nn.Module):
+    """This corresponds to the Block class in the original implementation."""
+
+    def __init__(self, config, hidden_size, num_attention_heads, drop_path, sequence_reduction_ratio, mlp_ratio):
+        super().__init__()
+        self.pooling = SegformerTokenMixerPooling()
+        self.drop_path = SegformerDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+        self.norm_2 = nn.GroupNorm(1, hidden_size)
+        self.norm_3 = nn.GroupNorm(1, hidden_size)
+        mlp_hidden_size = int(hidden_size * mlp_ratio)
+        self.mlp = SegformerPoolMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
+        layer_scale_init_value = 1e-5
+        self.layer_scale_1 = nn.Parameter(
+            layer_scale_init_value * torch.ones((hidden_size)), requires_grad=True)
+        self.layer_scale_2 = nn.Parameter(
+            layer_scale_init_value * torch.ones((hidden_size)), requires_grad=True)
+
+    def forward(self, hidden_states, height, width, output_attentions=False):
+        # first residual connection (with stochastic depth)
+        batch_size, seq_len, num_channels = hidden_states.shape
+        hidden_states = hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width)
+        pooling_output = self.pooling(self.norm_2(hidden_states))
+
+        pooling_output = self.drop_path(self.layer_scale_1.unsqueeze(-1).unsqueeze(-1) * pooling_output)
+        hidden_states = pooling_output + hidden_states
+
+        mlp_output = self.mlp(self.norm_3(hidden_states), height, width)
+
+        # second residual connection (with stochastic depth)
+        mlp_output = self.drop_path(self.layer_scale_2.unsqueeze(-1).unsqueeze(-1) * mlp_output)
+        layer_output = mlp_output + hidden_states
+        layer_output = layer_output.flatten(2).transpose(1, 2)
+        outputs = (layer_output,)
+
+        return outputs
 
 
 class SegformerEncoder(nn.Module):
@@ -456,6 +527,14 @@ class SegformerEncoder(nn.Module):
                 cur += config.depths[i - 1]
             for j in range(config.depths[i]):
                 layers.append(
+                    SegformerPoolLayer(
+                        config,
+                        hidden_size=config.hidden_sizes[i],
+                        num_attention_heads=config.num_attention_heads[i],
+                        drop_path=drop_path_decays[cur + j],
+                        sequence_reduction_ratio=config.sr_ratios[i],
+                        mlp_ratio=config.mlp_ratios[i],
+                    ) if i < 2 else 
                     SegformerLayer(
                         config,
                         hidden_size=config.hidden_sizes[i],
