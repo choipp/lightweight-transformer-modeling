@@ -401,6 +401,8 @@ class SegformerPoolMixFFN(nn.Module):
         out_features = out_features or in_features
         self.conv1 = nn.Conv2d(in_features, hidden_features, 1)
         self.norm_1 = nn.GroupNorm(1, hidden_features)
+        self.dwconv = SegformerDWConv(hidden_features)
+        self.norm_2 = nn.GroupNorm(1, hidden_features)
         if isinstance(config.hidden_act, str):
             self.intermediate_act_fn = ACT2FN[config.hidden_act]
         else:
@@ -410,7 +412,8 @@ class SegformerPoolMixFFN(nn.Module):
 
     def forward(self, hidden_states, height, width):
         hidden_states = self.conv1(hidden_states)
-        hidden_states = self.intermediate_act_fn(self.norm_1(hidden_states))
+        hidden_states = self.dwconv(self.norm_1(hidden_states), height, width)
+        hidden_states = self.intermediate_act_fn(self.norm_2(hidden_states))
         # hidden_states = self.dropout(hidden_states)
         hidden_states = self.conv2(hidden_states)
         # hidden_states = self.dropout(hidden_states)
