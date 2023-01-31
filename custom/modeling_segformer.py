@@ -204,18 +204,12 @@ class SegformerEfficientSelfAttention(nn.Module):
                 f"The hidden size ({self.hidden_size}) is not a multiple of the number of attention "
                 f"heads ({self.num_attention_heads})"
             )
-<<<<<<< HEAD
-        # hidden_size: [64, 128, 320, 512]
-        self.attention_head_size = int(self.hidden_size / self.num_attention_heads) # 64
-        self.all_head_size = self.num_attention_heads * self.attention_head_size # 64 * [1, 2, 5, 8]
-=======
 
         self.lambdaV = expansion_ratio
         
         self.attention_head_size = int(self.hidden_size / self.num_attention_heads) # [64, 128, 320, 512] / [1, 2, 5, 8] = 64
         self.all_head_size = self.num_attention_heads * self.attention_head_size # [64, 128, 320, 512]
         self.v_hidden = int(self.all_head_size*self.lambdaV)
->>>>>>> origin/feature/EMO
 
         #self.query = nn.Linear(self.hidden_size, self.all_head_size)
         #self.key = nn.Linear(self.hidden_size, self.all_head_size)
@@ -238,12 +232,7 @@ class SegformerEfficientSelfAttention(nn.Module):
 
         
     def transpose_for_scores(self, hidden_states):
-<<<<<<< HEAD
-        # new_shape = [1, 16384, 1, 64]
-        new_shape = hidden_states.size()[:-1] + (self.num_attention_heads, self.attention_head_size) # # [1, 16384] + (1, 64)
-=======
         new_shape = hidden_states.size()[:-1] + (self.num_attention_heads, self.attention_head_size) # ([1, 2, 5, 8], 64)
->>>>>>> origin/feature/EMO
         hidden_states = hidden_states.view(new_shape)
         return hidden_states.permute(0, 2, 1, 3)
     
@@ -259,25 +248,6 @@ class SegformerEfficientSelfAttention(nn.Module):
         width,
         output_attentions=False,
     ):
-<<<<<<< HEAD
-        # hidden_sates = [1, 16384, 64]
-        query_layer = self.transpose_for_scores(self.query(hidden_states)) # # 1, 1, 16384, 64
- 
-        if self.sr_ratio > 1:
-            batch_size, seq_len, num_channels = hidden_states.shape # # num_channels = 64
-            # Reshape to (batch_size, num_channels, height, width)
-            hidden_states = hidden_states.permute(0, 2, 1).reshape(batch_size, num_channels, height, width)
-            # hidden_states.permute(0, 2, 1): [1, 64, 16384] => [1, 64, 128, 128]
-            # Apply sequence reduction
-            hidden_states = self.sr(hidden_states) # [1, 64, 16, 16]
-            # Reshape back to (batch_size, seq_len, num_channels)
-            hidden_states = hidden_states.reshape(batch_size, num_channels, -1).permute(0, 2, 1)
-            hidden_states = self.layer_norm(hidden_states)
-
-        key_layer = self.transpose_for_scores(self.key(hidden_states)) # 1, 1, 256, 64
-        value_layer = self.transpose_for_scores(self.value(hidden_states))  # 1, 1, 256, 64
-
-=======
         query_layer = self.transpose_for_scores(hidden_states) # 1, 1, 16384, 64 / 1, 2, 4096, 64
 
         batch_size, seq_len, num_channels = hidden_states.shape # (1stage) 1, 16384, 64 / (2stage) 1, 4096, 128
@@ -295,7 +265,6 @@ class SegformerEfficientSelfAttention(nn.Module):
         # value_layer = self.act(value_layer)
         # value_layer = self.transpose_for_vscores(value_layer) # (1stage) 1, 1, 16384, 128 / (2stage) 1, 2, 49, 192
         
->>>>>>> origin/feature/EMO
         # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2)) 
         # torch.Size([1, 1, 16384, 64]) * torch.Size([1, 1, 64, 49]) => torch.Size([1, 1, 16384, 49])
@@ -330,32 +299,15 @@ class SegformerEfficientSelfAttention(nn.Module):
 #         self.dense = nn.Linear(hidden_size, hidden_size)
 #         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-<<<<<<< HEAD
-    def forward(self, hidden_states, input_tensor):
-        hidden_states = self.dense(hidden_states)
-        hidden_states = self.dropout(hidden_states) # XCA: torch.size([16384, 64])
-        return hidden_states
-=======
 #     def forward(self, hidden_states, input_tensor):
 #         hidden_states = self.dense(hidden_states)
 #         hidden_states = self.dropout(hidden_states)
 #         return hidden_states
->>>>>>> origin/feature/EMO
 
 
 class SegformerAttention(nn.Module):
     def __init__(self, config, hidden_size, num_attention_heads, sequence_reduction_ratio, expansion_ratio):
         super().__init__()
-<<<<<<< HEAD
-        # self.self = SegformerEfficientSelfAttention(
-        #     config=config,
-        #     hidden_size=hidden_size,
-        #     num_attention_heads=num_attention_heads,
-        #     sequence_reduction_ratio=sequence_reduction_ratio,
-        # )
-        self.self = SegformerXCA(dim=hidden_size, num_heads=8)
-        self.output = SegformerSelfOutput(config, hidden_size=hidden_size)
-=======
         self.self = SegformerEfficientSelfAttention(
             config=config,
             hidden_size=hidden_size,
@@ -364,7 +316,6 @@ class SegformerAttention(nn.Module):
             expansion_ratio= expansion_ratio,
         )
         # self.output = SegformerSelfOutput(config, hidden_size=hidden_size)
->>>>>>> origin/feature/EMO
         self.pruned_heads = set()
 
     def prune_heads(self, heads):
@@ -386,16 +337,6 @@ class SegformerAttention(nn.Module):
         self.pruned_heads = self.pruned_heads.union(heads)
 
     def forward(self, hidden_states, height, width, output_attentions=False):
-<<<<<<< HEAD
-        # self_outputs = self.self(hidden_states, height, width, output_attentions) # (torch.Size([1, 16384, 64]))
-        self_outputs = self.self(hidden_states) # torch.size([1, 16384, 64])
-        #hidden_states: torch.Size([1, 16384, 64])
-        # attention_output = self.output(self_outputs[0], hidden_states) # torch.Size([1, 16384, 64])
-        attention_output = self.output(self_outputs, hidden_states) # torch.Size([1, 16384, 64])
-        # outputs = (attention_output,) + self_outputs[1:]  # add attentions if we output them # torch.Size([1, 16384, 64])
-        outputs = (attention_output, ) + tuple()  # add attentions if we output them # torch.Size([0, 16384, 64])
-        return outputs # tuple -> torch.Tensor
-=======
         self_outputs = self.self(hidden_states, height, width, output_attentions)
 
         # nodense change4
@@ -403,7 +344,6 @@ class SegformerAttention(nn.Module):
         #outputs = (attention_output,) + self_outputs[1:]  # add attentions if we output them
         outputs = self_outputs
         return outputs
->>>>>>> origin/feature/EMO
 
 
 class SegformerDWConv(nn.Module):
@@ -495,16 +435,10 @@ class SegformerLayer(nn.Module):
             height,
             width,
             output_attentions=output_attentions,
-<<<<<<< HEAD
         ) # (torch.Size([1, 16384, 64]))
 
         attention_output = self_attention_outputs[0] 
         outputs = self_attention_outputs[1:]  # add self attentions if we output attention weights
-=======
-        )
-        attention_output = self_attention_outputs[0] # 1, 16384, 128
-        #outputs = self_attention_outputs[1:]  # add self attentions if we output attention weights
->>>>>>> origin/feature/EMO
 
         # first residual connection (with stochastic depth)
         attention_output = self.drop_path(attention_output) # 1, 16384, 128  
@@ -862,18 +796,6 @@ class SegformerDecodeHead(SegformerPreTrainedModel):
             mlps.append(mlp)
         self.linear_c = nn.ModuleList(mlps)
 
-<<<<<<< HEAD
-        
-        # mod_linear_fuse
-        self.linear_fuse = nn.Conv2d(
-            in_channels=config.decoder_hidden_size * config.num_encoder_blocks,
-            out_channels=config.decoder_hidden_size,
-            kernel_size=3,
-            padding=1,
-            bias=False,
-            groups=config.decoder_hidden_size
-        )
-=======
         # # the following 3 layers implement the ConvModule of the original implementation
         # self.linear_fuse = nn.Conv2d(
         #     in_channels=config.decoder_hidden_size * config.num_encoder_blocks,
@@ -883,7 +805,6 @@ class SegformerDecodeHead(SegformerPreTrainedModel):
         #     # groups=config.decoder_hidden_size,
         #     bias=False,
         # )
->>>>>>> origin/feature/EMO
         self.batch_norm = nn.BatchNorm2d(config.decoder_hidden_size)
         self.activation = nn.ReLU()
 
