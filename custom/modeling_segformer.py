@@ -61,7 +61,6 @@ SEGFORMER_PRETRAINED_MODEL_ARCHIVE_LIST = [
 class SegFormerImageClassifierOutput(ImageClassifierOutput):
     """
     Base class for outputs of image classification models.
-
     Args:
         loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
             Classification (or regression if config.num_labels==1) loss.
@@ -74,7 +73,6 @@ class SegFormerImageClassifierOutput(ImageClassifierOutput):
         attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
             Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, num_heads, patch_size,
             sequence_length)`.
-
             Attentions weights after the attention softmax, used to compute the weighted average in the self-attention
             heads.
     """
@@ -89,7 +87,6 @@ class SegFormerImageClassifierOutput(ImageClassifierOutput):
 def drop_path(input, drop_prob: float = 0.0, training: bool = False, scale_by_keep=True):
     """
     Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
-
     Comment by Ross Wightman: This is the same as the DropConnect impl I created for EfficientNet, etc networks,
     however, the original name is misleading as 'Drop Connect' is a different form of dropout in a separate paper...
     See discussion: https://github.com/tensorflow/tpu/issues/494#issuecomment-532968956 ... I've opted for changing the
@@ -126,18 +123,26 @@ class SegformerOverlapPatchEmbeddings(nn.Module):
 
     def __init__(self, patch_size, stride, num_channels, hidden_size):
         super().__init__()
-        self.proj = nn.Conv2d(
-            num_channels,
-            hidden_size,
-            kernel_size=patch_size,
-            stride=stride,
-            padding=patch_size // 2,
+        #self.proj = nn.Conv2d(
+        #    num_channels,
+        #    hidden_size,
+        #    kernel_size=patch_size,
+        #    stride=stride,
+        #    padding=patch_size // 2,
+        #)
+        self.conv = nn.Conv2d(num_channels, hidden_size, 1, 1, 0)
+
+        self.pool = nn.AvgPool2d(
+            patch_size, stride=stride, 
+            padding=patch_size//2,
+            count_include_pad=False,
         )
 
         self.layer_norm = nn.LayerNorm(hidden_size)
 
     def forward(self, pixel_values):
-        embeddings = self.proj(pixel_values)
+        #embeddings = self.proj(pixel_values)
+        embeddings = self.pool(self.conv(pixel_values))
         _, _, height, width = embeddings.shape
         # (batch_size, num_channels, height, width) -> (batch_size, num_channels, height*width) -> (batch_size, height*width, num_channels)
         # this can be fed to a Transformer layer
@@ -632,7 +637,6 @@ SEGFORMER_START_DOCSTRING = r"""
     This model is a PyTorch [torch.nn.Module](https://pytorch.org/docs/stable/nn.html#torch.nn.Module) sub-class. Use
     it as a regular PyTorch Module and refer to the PyTorch documentation for all matter related to general usage and
     behavior.
-
     Parameters:
         config ([`SegformerConfig`]): Model configuration class with all the parameters of the model.
             Initializing with a config file does not load the weights associated with the model, only the
@@ -640,12 +644,10 @@ SEGFORMER_START_DOCSTRING = r"""
 """
 
 SEGFORMER_INPUTS_DOCSTRING = r"""
-
     Args:
         pixel_values (`torch.FloatTensor` of shape `(batch_size, num_channels, height, width)`):
             Pixel values. Padding will be ignored by default should you provide it. Pixel values can be obtained using
             [`SegformerFeatureExtractor`]. See [`SegformerFeatureExtractor.__call__`] for details.
-
         output_attentions (`bool`, *optional*):
             Whether or not to return the attentions tensors of all attention layers. See `attentions` under returned
             tensors for more detail.
@@ -921,22 +923,16 @@ class SegformerForSemanticSegmentation(SegformerPreTrainedModel):
         labels (`torch.LongTensor` of shape `(batch_size, height, width)`, *optional*):
             Ground truth semantic segmentation maps for computing the loss. Indices should be in `[0, ...,
             config.num_labels - 1]`. If `config.num_labels > 1`, a classification loss is computed (Cross-Entropy).
-
         Returns:
-
         Examples:
-
         ```python
         >>> from transformers import SegformerFeatureExtractor, SegformerForSemanticSegmentation
         >>> from PIL import Image
         >>> import requests
-
         >>> feature_extractor = SegformerFeatureExtractor.from_pretrained("nvidia/segformer-b0-finetuned-ade-512-512")
         >>> model = SegformerForSemanticSegmentation.from_pretrained("nvidia/segformer-b0-finetuned-ade-512-512")
-
         >>> url = "http://images.cocodataset.org/val2017/000000039769.jpg"
         >>> image = Image.open(requests.get(url, stream=True).raw)
-
         >>> inputs = feature_extractor(images=image, return_tensors="pt")
         >>> outputs = model(**inputs)
         >>> logits = outputs.logits  # shape (batch_size, num_labels, height/4, width/4)
