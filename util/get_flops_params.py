@@ -62,7 +62,7 @@ def main(opt):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', type=str, default="/opt/ml/input/data/ADEChallengeData2016")
+    parser.add_argument('--data_dir', type=str, default="/opt/ml/input/final_project_level3-cv-16/dataset_path/ADEChallengeData2016")
     return parser.parse_args()
 
 if __name__ == "__main__":

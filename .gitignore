@@ -10,3 +10,6 @@ mod_segformer/
 *.whl
 *.engine
 *.txt
+
+*.pth
+dataset_path/
