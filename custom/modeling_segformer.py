@@ -438,7 +438,7 @@ class SegformerLayer(nn.Module):
         self.mlp = SegformerMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
 
     def forward(self, hidden_states, height, width, output_attentions=False):
-        hidden_states_ = hidden_states[:]
+        # hidden_states_ = hidden_states[:]
         self_attention_outputs = self.attention(
             hidden_states,  # in Segformer, layernorm is applied before self-attention
             height,
@@ -457,7 +457,7 @@ class SegformerLayer(nn.Module):
 
         # second residual connection (with stochastic depth)
         mlp_output = self.drop_path(mlp_output)
-        layer_output = self.layer_norm_2(mlp_output + hidden_states + hidden_states_)
+        layer_output = self.layer_norm_2(mlp_output + hidden_states)
 
         outputs = (layer_output,) + outputs
 
@@ -485,7 +485,7 @@ class SegformerPoolLayer(nn.Module):
         # first residual connection (with stochastic depth)
         batch_size, seq_len, num_channels = hidden_states.shape
         hidden_states = hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width)
-        hidden_states_ = hidden_states[:]
+        # hidden_states_ = hidden_states[:]
         pooling_output = self.pooling(hidden_states)
 
         pooling_output = self.drop_path(self.layer_scale_1.unsqueeze(-1).unsqueeze(-1) * pooling_output)
@@ -495,7 +495,7 @@ class SegformerPoolLayer(nn.Module):
 
         # second residual connection (with stochastic depth)
         mlp_output = self.drop_path(self.layer_scale_2.unsqueeze(-1).unsqueeze(-1) * mlp_output)
-        layer_output = self.norm_2(mlp_output + hidden_states + hidden_states_)
+        layer_output = self.norm_2(mlp_output + hidden_states)
         layer_output = layer_output.flatten(2).transpose(1, 2)
         outputs = (layer_output,)
 
