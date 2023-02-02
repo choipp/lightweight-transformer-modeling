@@ -372,9 +372,11 @@ class SegformerMixFFN(nn.Module):
         super().__init__()
         out_features = out_features or in_features
         self.conv_1 = nn.Conv2d(in_features, hidden_features, 1)
-        self.norm_1 = nn.GroupNorm(1, hidden_features)
+        # self.norm_1 = nn.GroupNorm(1, hidden_features)
+        self.norm_1 = nn.BatchNorm2d(hidden_features)
         self.dwconv = SegformerDWConv(hidden_features)
-        self.norm_2 = nn.GroupNorm(1, hidden_features)
+        # self.norm_2 = nn.GroupNorm(1, hidden_features)
+        self.norm_2 = nn.BatchNorm2d(hidden_features)
         if isinstance(config.hidden_act, str):
             self.intermediate_act_fn = ACT2FN[config.hidden_act]
         else:
@@ -400,9 +402,9 @@ class SegformerPoolMixFFN(nn.Module):
         super().__init__()
         out_features = out_features or in_features
         self.conv1 = nn.Conv2d(in_features, hidden_features, 1)
-        self.norm_1 = nn.GroupNorm(1, hidden_features)
+        self.norm_1 = nn.BatchNorm2d(hidden_features)
         self.dwconv = SegformerDWConv(hidden_features)
-        self.norm_2 = nn.GroupNorm(1, hidden_features)
+        self.norm_2 = nn.BatchNorm2d(hidden_features)
         if isinstance(config.hidden_act, str):
             self.intermediate_act_fn = ACT2FN[config.hidden_act]
         else:
@@ -471,8 +473,10 @@ class SegformerPoolLayer(nn.Module):
         super().__init__()
         self.pooling = SegformerTokenMixerPooling()
         self.drop_path = SegformerDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
-        self.norm_1 = nn.GroupNorm(1, hidden_size)
-        self.norm_2 = nn.GroupNorm(1, hidden_size)
+        # self.norm_1 = nn.GroupNorm(1, hidden_size)
+        self.norm_1 = nn.BatchNorm2d(hidden_size)
+        # self.norm_2 = nn.GroupNorm(1, hidden_size)
+        self.norm_2 = nn.BatchNorm2d(hidden_size)
         mlp_hidden_size = int(hidden_size * mlp_ratio)
         self.mlp = SegformerPoolMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
         layer_scale_init_value = 1e-5
