@@ -142,7 +142,7 @@ class SegformerOverlapPatchEmbeddings(nn.Module):
 
     def forward(self, pixel_values):
         #embeddings = self.proj(pixel_values)
-        embeddings = self.pool(self.conv(pixel_values))
+        embeddings = self.conv(self.pool(pixel_values))
         _, _, height, width = embeddings.shape
         # (batch_size, num_channels, height, width) -> (batch_size, num_channels, height*width) -> (batch_size, height*width, num_channels)
         # this can be fed to a Transformer layer
