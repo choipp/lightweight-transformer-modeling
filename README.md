@@ -77,7 +77,7 @@
 ---
 
 ## 📰 **BoostFormer(Ours)**
-![boostformer](https://user-images.githubusercontent.com/25689849/217526183-bdfe4c9f-a497-4cde-9dcb-5e00d8dfba11.svg)
+![boostformer](https://user-images.githubusercontent.com/70796031/217601448-a6897060-094a-409c-b654-c03e98021d45.svg)
 
 |Encoder|Decoder|
 |:---:|:---:|
