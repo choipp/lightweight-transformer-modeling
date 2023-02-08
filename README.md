@@ -1,8 +1,8 @@
-# **SegFormer-B2 경량화 프로젝트**
+# **SegFormer 경량 모델링**
 
-<div align="center">
-    <img src="https://user-images.githubusercontent.com/113173095/217482605-77fc5273-9a6d-4e6b-bf34-89fbdf05b093.png" width=30%>
-</div>
+![Main](https://user-images.githubusercontent.com/103131249/217564941-4a04a02f-57fe-4a85-9cdc-6ff287687cba.png)
+
+</br>
 
 ## 📰 **Contributors**
 
@@ -10,11 +10,11 @@
 
 |민기|박민지|유영준|장지훈|최동혁|
 |:----:|:----:|:----:|:---:|:---:|
-|[<img alt="revanZX" src="https://avatars.githubusercontent.com/u/25689849?v=4&s=100" width="100">](https://github.com/revanZX)|[<img alt="arislid" src="https://avatars.githubusercontent.com/u/46767966?v=4&s=100" width="100">](https://github.com/arislid)|[<img alt="youngjun04" src="https://avatars.githubusercontent.com/u/113173095?v=4&s=100" width="100">](https://github.com/youngjun04)|[<img alt="FIN443" src="https://avatars.githubusercontent.com/u/70796031?v=4&s=100" width="100">](https://github.com/FIN443)|[<img alt="choipp" src="https://avatars.githubusercontent.com/u/103131249?v=4&s=117" width="100">](https://github.com/choipp)|
-|Remove SelfOutput</br>Separable Attention</br>Inverted Residual Mobile Block</br>Project GitHub Management | Cross-Covariance Attention</br>Inverted Residual Mobile Block</br>실험 기록 · 매뉴얼 작성 및 관리</br>Hyperparameter Tuning (Batch Size)</br>Deploy models on Jetson Nano | Weighted Sum</br>Sequence Reduction Pooling</br>개선된 구조 및 기법 병합</br>Project Documentation</br>Ablation Study | Deformable Attention</br>MixCFN</br>Local Connection</br>Inference Results 추출 · 분석</br>Profiling Tool 코드 개선 | PM</br>Pool Former</br>Pooling Patch Embedding</br>Learnable Resizer</br>레이어별 Params · FLOPs 분석|
+|[<img alt="revanZX" src="https://user-images.githubusercontent.com/70796031/217557235-d89557b2-a178-4650-8c21-20cf2b7f80b8.png" width="100%">](https://github.com/revanZX)|[<img alt="arislid" src="https://user-images.githubusercontent.com/70796031/217557228-c0e572a4-40c6-44ae-8d53-f28c32fe4e6d.png" width="100%">](https://github.com/arislid)|[<img alt="youngjun04" src="https://user-images.githubusercontent.com/70796031/217557229-e42381d6-4c27-482c-801e-49872bcedd30.png" width="100%">](https://github.com/youngjun04)|[<img alt="FIN443" src="https://user-images.githubusercontent.com/70796031/217557222-1491ed63-3587-42a1-9bf2-591c91e52e36.png" width="100%">](https://github.com/FIN443)|[<img alt="choipp" src="https://user-images.githubusercontent.com/70796031/217557214-03420adf-5950-4710-b857-a289961989c6.png" width="100%">](https://github.com/choipp)|
+<!-- |Remove SelfOutput</br>Separable Attention</br>Inverted Residual Mobile Block</br>Project GitHub Management | Cross-Covariance Attention</br>Inverted Residual Mobile Block</br>실험 기록 · 매뉴얼 작성 및 관리</br>Hyperparameter Tuning (Batch Size)</br>Deploy models on Jetson Nano | Weighted Sum</br>Sequence Reduction Pooling</br>개선된 구조 및 기법 병합</br>Project Documentation</br>Ablation Study | Deformable Attention</br>MixCFN</br>Local Connection</br>Inference Results 추출 · 분석</br>Profiling Tool 코드 개선 | PM</br>Pool Former</br>Pooling Patch Embedding</br>Learnable Resizer</br>레이어별 Params · FLOPs 분석| -->
 
+<!-- ![profile](https://user-images.githubusercontent.com/70796031/217537194-9a9af88d-bd74-4421-bb9e-43ccd302f916.png) -->
 </br>
-
 
 ## 📰 **Links**
 
@@ -22,8 +22,7 @@
 - [비전 길잡이 발표자료 & WrapUpReport](./appendix/)
 
 ## 📰 **Objective**
-
->모델 Params 및 FLOPs 및 각각 20% 이상 감소<br/>성능 하락 1% 미만으로 최소화
+![image](https://user-images.githubusercontent.com/103131249/217568159-2cbb62b9-ff6c-4795-8d7c-7f637f90e95e.png)
 - **SegFormer** : 임베디드 및 모바일 기기를 위한 Transformer 기반 Semantic Segmentation 모델 경량화
 - **Model driven approach** : 하이퍼파라미터 튜닝 등 고도화된 학습 기법 배제 · 순수 모델링을 통한 성능 향상
 - Pruning 및 quantization 등 **compression 방법 배제** : 모델 블록 · 레이어 재설계 등 경량화 구조변경 진행
@@ -67,27 +66,19 @@
 - Validation set : 2,000 images -->
 
 ## 📰 **Base Model**
-
-![Segformer](https://user-images.githubusercontent.com/25689849/217527787-be5e3a78-0986-4b83-9ec6-85ce65bb4562.svg)
+![Segformer](https://user-images.githubusercontent.com/103131249/217569843-478c191b-e431-4903-9e36-6259d2bd990a.png)
 <!-- <img src="https://user-images.githubusercontent.com/113173095/217485570-003dd0a5-6f0d-4195-8e73-c9ca64f57e02.png" width="400" height="300"> -->
-
-### Encoder
-
-- Overlap Patch Embedding
-- SegFormer Block
-- Efficient Self-Attention
-- Mix-FFN
-
-### Decoder
-
-- MLP Layer
-- Concat, Linear-Fuse
-- Classifier
+|Encoder|Decoder|
+|:---:|:---:|
+|Overlap Patch Embedding|MLP Layer (upsampling)|
+|SegFormer Block|Concat|
+|Efficient Self-Attention|Linear-Fuse|
+|Mix-FFN|Classifier|
 ---
 
 ## 📰 **BoostFormer(Ours)**
-
 ![boostformer](https://user-images.githubusercontent.com/25689849/217526183-bdfe4c9f-a497-4cde-9dcb-5e00d8dfba11.svg)
+
 
 ### Encoder
 
@@ -107,10 +98,8 @@
 
 ## 📰 **Strategy**
 
-![Strategy](https://user-images.githubusercontent.com/25689849/217510697-19b79b6d-f144-4290-8c50-47a7a75ff98b.svg)
+![image](https://user-images.githubusercontent.com/103131249/217567344-f2be7b76-c18c-4157-8770-ba80142540b9.png)
 
-- **Tiny-ImageNet Encoder pretrain** + **ADE20k fine-tuning**
-    - 컴퓨팅 용량 제한으로 인해 Tiny-ImageNet 활용
 - Segformer-B2와 custom model 성능 비교 및 Params와 Flops 측정 (util/get_flops_params.py)
 
 ---
@@ -176,6 +165,12 @@
 |SegFormer-B2|27.462M|58.576G|66.48|29.84|
 |**BoostFormer</br>(Ours)**|**17.575M</br>(-36.00%)**|**15.826G</br>(-72.98%)**|**72.28</br>(+8.72%)**|**34.29</br>(+14.91%)**|
 
+---
+## 📰 **Qualitative results on ADE20K**
+![results](https://user-images.githubusercontent.com/103131249/217559500-9d9765f5-96f5-4e2d-81c5-3dd2a89fd7a4.png)
+
+## 📰 **Mobile Inference Time Comparison**
+![image](https://user-images.githubusercontent.com/103131249/217567804-d8c6cde7-f991-4039-a409-2783600f0a33.png)
 
 - **기존 모델 대비 Params 36% 감소, FLOPs 72% 감소, mIoU 성능 14% 향상**
 <br/><br/>
