@@ -105,7 +105,7 @@
 
 - NxN Conv를 Pooling + 1x1 Conv로 대체
 
-    <img src="https://user-images.githubusercontent.com/103131249/217577556-b8fb4e33-4a1b-4e23-8023-acf5afb89f85.png" width="250">
+    <img src="https://user-images.githubusercontent.com/103131249/217582684-3601ac28-0886-481a-aee0-bd52b26fa7f9.png" width="150">
     
 
 ### 2. Transformer Block
@@ -136,7 +136,7 @@
     - $\hat {F_C}=\mathrm {Conv}_{1 \times 1}(F_C)$
 - 3x3 DWConv를 3x3과 5x5 DWConv로 channel-wise로 나누어 연산 후 Concat (Mix-CFN)
 
-    - <img src="https://user-images.githubusercontent.com/103131249/217580303-84047ad0-3197-419f-b83e-ffccf3ca53b9.png" width="250">
+    - <img src="https://user-images.githubusercontent.com/103131249/217580303-84047ad0-3197-419f-b83e-ffccf3ca53b9.png" width="180">
 
     - $\hat {F_C}=\mathrm {Conv}_{1 \times 1}(\mathrm {Concat}(\hat {F_1},\hat {F_2}))$
 - Batch-Normalization 추가
@@ -147,10 +147,11 @@
 <img src="https://user-images.githubusercontent.com/25689849/217508282-bb070e23-280f-4268-a2cc-2d7021c2eab7.svg">
 
 - Stage Features Upsample
-    - <img src="https://user-images.githubusercontent.com/103131249/217580836-fd09f784-b0b8-497b-b58f-7b64466106fd.png" width="250">
+    - <img src="https://user-images.githubusercontent.com/103131249/217580836-fd09f784-b0b8-497b-b58f-7b64466106fd.png" width="200">
     
 - **Weighted Sum 적용**
-    - $\hat {F}=\sum^{3}_{i=0}(w_i\hat {F_i})$
+    - <img src="https://user-images.githubusercontent.com/103131249/217582409-9b7e3443-4b72-42c2-8017-2b539fbc8167.png" width="150">
+
 
 ---
 
