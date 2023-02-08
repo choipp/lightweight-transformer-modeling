@@ -1,4 +1,4 @@
-# **SegFormer 경량 모델링**
+# **SegFormer 모델 구조변경 · 레이어 재설계**
 
 ![Main](https://user-images.githubusercontent.com/103131249/217564941-4a04a02f-57fe-4a85-9cdc-6ff287687cba.png)
 
@@ -111,37 +111,37 @@
 <img src="https://user-images.githubusercontent.com/25689849/217509298-cabb401f-e736-4c44-8719-15830b487b97.svg">
 
 - NxN Conv를 Pooling + 1x1 Conv로 대체
-    - $F_{out}=\mathrm{Conv}(\mathrm{Pooling}_{1\times1}(F_{in}))$
+    - $F_{out}=\mathrm {Conv}(\mathrm {Pooling}_{1 \times 1}(F_{in}))$
 
 ### 2. Transformer Block
 
 <img src="https://user-images.githubusercontent.com/25689849/217509038-98c57ecc-ff32-4f74-8f36-caab02bc1fcb.svg">
 
 - Token Mixer : MHSA 대신 Pooling으로 feature 추출
-    - $\hat{F_0}=\mathrm{LayerScale}(\mathrm{Pooling}(F_{in}))+F_{in}$
-    - $\hat{F_1}=\mathrm{LayerScale}(\mathrm{MixCFN}(\hat{F_0}))+\hat{F_0}$
+    - $\hat {F_0}=\mathrm {LayerScale}(\mathrm {Pooling}(F_{in}))+F_{in}$
+    - $\hat {F_1}=\mathrm {LayerScale}(\mathrm {MixCFN}(\hat {F_0}))+\hat {F_0}$
 - 기존 Self Output 모듈 삭제
-    - $\hat{F_0}=\mathrm{CSA}(F_{in})+F_{in}$
-    - $\hat{F_1}=\mathrm{MixCFN}(\hat{F_0})+\hat{F_0}$
+    - $\hat {F_0}=\mathrm {CSA}(F_{in})+F_{in}$
+    - $\hat {F_1}=\mathrm {MixCFN}(\hat {F_0})+\hat {F_0}$
 
 ### 3. Attention Layer
 
 <img src="https://user-images.githubusercontent.com/25689849/217508647-14b486db-85ed-4684-a652-d3bc30c6e334.svg">
 
 - Pooling으로 K, V 차원 축소
-    - $K, V=\mathrm{Pooling}(F_C)$
+    - $K, V=\mathrm {Pooling}(F_C)$
 - 1x1 Convolution 삭제
-    - $\mathrm{Attention}(Q,K,V)=\mathrm{Softmax}({{QK^T}\over{\sqrt{d_{head}}}}V)$
+    - $\mathrm {Attention}(Q,K,V)=\mathrm {Softmax}({{QK^T}\over {\sqrt {d_{head}}}}V)$
 
 ### 4. FFN
 
 <img src="https://user-images.githubusercontent.com/25689849/217507844-f29f7b99-d143-4166-b60a-4a29f643e38e.svg">
 
 - 기존의 Linear(dense) embedding 연산을 1x1 Conv로 변경
-    - $\hat{F_C}=\mathrm{Conv}_{1\times1}(F_C)$
+    - $\hat {F_C}=\mathrm {Conv}_{1 \times 1}(F_C)$
 - 3x3 DWConv를 3x3과 5x5 DWConv로 channel-wise로 나누어 연산 후 Concat (Mix-CFN)
-    - $\hat{F_1}=\mathrm{DWConv}_{3\times3}(\hat{F}_{C/2}), \hat{F_2}=\mathrm{DWConv}_{5\times5}(\hat{F}_{C/2})$
-    - $\hat{F_C}=\mathrm{Conv}_{1\times1}(\mathrm{Concat}(\hat{F_1},\hat{F_2}))$
+    - $\hat {F_1}=\mathrm {DWConv}_{3 \times 3}(\hat{F}_{C/2}), \hat {F_2}=\mathrm {DWConv}_{5 \times 5}(\hat {F}_{C/2})$
+    - $\hat {F_C}=\mathrm {Conv}_{1 \times 1}(\mathrm {Concat}(\hat {F_1},\hat {F_2}))$
 - Batch-Normalization 추가
 
 
@@ -150,9 +150,9 @@
 <img src="https://user-images.githubusercontent.com/25689849/217508282-bb070e23-280f-4268-a2cc-2d7021c2eab7.svg">
 
 - Stage Features Upsample
-    - $\hat{F}_i=\mathrm{Upsample}(\mathrm{MLP}(F_{in}))$
+    - $\hat {F}_i=\mathrm {Upsample}(\mathrm {MLP}(F_{in}))$
 - **Weighted Sum 적용**
-    - $\hat{F}=\sum^3_{i=0}(w_i\hat{F_i})$
+    - $\hat {F}=\sum^{3}_{i=0}(w_i\hat {F_i})$
 
 ---
 
