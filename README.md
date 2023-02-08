@@ -38,6 +38,19 @@
 |Num_classes|200|150|
 |Training set|100,000 images|20,210 images|
 |Validation set|10,000 images|2,000 images|
+
+```
+|-- ADEChallengeData2016
+|   |-- image
+|   |   |-- train
+|   |   `-- val
+|   `-- mask
+|       |-- train
+|       `-- val
+`-- tiny-imagenet-200
+    |-- train
+    |-- val
+```
 <!-- ### Tiny-ImageNet (Pre-training)
 <img src="https://user-images.githubusercontent.com/113173095/217479439-5492f4b3-a115-43b7-9952-b1c1a5c850b9.png" width="200" height="200">
 
@@ -72,9 +85,9 @@
 - Classifier
 ---
 
-## 📰 **Ours Model**
+## 📰 **BoostFormer(Ours)**
 
-![boostformer](https://user-images.githubusercontent.com/70796031/217485857-cb57f4fe-ec1d-451d-adc6-829fbecf24d9.png)
+![boostformer](https://user-images.githubusercontent.com/25689849/217509565-2eeb5955-7ef1-4352-9cf8-6df0776d0228.svg)
 
 ### Encoder
 
@@ -83,46 +96,90 @@
 - **SegFormerV2 Block**
 - **Custom Efficient Self-Attention**
 - **Mix-CFN**
+
 ### Decoder
+
 - MLP Layer
 - **Weighted Sum**
 - Classifier
+
 ---
 
 ## 📰 **Strategy**
+
+![Strategy](https://user-images.githubusercontent.com/25689849/217510697-19b79b6d-f144-4290-8c50-47a7a75ff98b.svg)
 
 - **Tiny-ImageNet Encoder pretrain** + **ADE20k fine-tuning**
     - 컴퓨팅 용량 제한으로 인해 Tiny-ImageNet 활용
 - Segformer-B2와 custom model 성능 비교 및 Params와 Flops 측정 (util/get_flops_params.py)
 
 ---
-## 📰 **Method**
-### 1. Patch Embedding
-<img src="https://user-images.githubusercontent.com/113173095/217486653-4cbb9082-d4a9-42ab-a131-2fb7066b2b53.png" width="250">
 
-$F_{out}=\mathrm{Conv}(\mathrm{Pooling}_{1\times1}(F_{in}))$
+## 📰 **Method**
+
+### 1. Patch Embedding
+
+<img src="https://user-images.githubusercontent.com/25689849/217509298-cabb401f-e736-4c44-8719-15830b487b97.svg">
+
+- NxN Conv를 Pooling + 1x1 Conv로 대체
+    - $F_{out}=\mathrm{Conv}(\mathrm{Pooling}_{1\times1}(F_{in}))$
 
 ### 2. Transformer Block
-<img src="https://user-images.githubusercontent.com/113173095/217488041-a6efbe54-3983-4f8c-ae45-45ab9d09e859.png" height="200">
+
+<img src="https://user-images.githubusercontent.com/25689849/217509038-98c57ecc-ff32-4f74-8f36-caab02bc1fcb.svg">
 
 - Token Mixer : MHSA 대신 Pooling으로 feature 추출
     - $\hat{F_0}=\mathrm{LayerScale}(\mathrm{Pooling}(F_{in}))+F_{in}$
     - $\hat{F_1}=\mathrm{LayerScale}(\mathrm{MixCFN}(\hat{F_0}))+\hat{F_0}$
 - 기존 Self Output 모듈 삭제
-    - $\hat{F_0}$
----
+    - $\hat{F_0}=\mathrm{CSA}(F_{in})+F_{in}$
+    - $\hat{F_1}=\mathrm{MixCFN}(\hat{F_0})+\hat{F_0}$
 
 ### 3. Attention Layer
 
+<img src="https://user-images.githubusercontent.com/25689849/217508647-14b486db-85ed-4684-a652-d3bc30c6e334.svg">
+
+- Pooling으로 K, V 차원 축소
+    - $K, V=\mathrm{Pooling}(F_C)$
+- 1x1 Convolution 삭제
+    - $\mathrm{Attention}(Q,K,V)=\mathrm{Softmax}({{QK^T}\over{\sqrt{d_{head}}}}V)$
+
+### 4. FFN
+
+<img src="https://user-images.githubusercontent.com/25689849/217507844-f29f7b99-d143-4166-b60a-4a29f643e38e.svg">
+
+- 기존의 Linear(dense) embedding 연산을 1x1 Conv로 변경
+    - $\hat{F_C}=\mathrm{Conv}_{1\times1}(F_C)$
+- 3x3 DWConv를 3x3과 5x5 DWConv로 channel-wise로 나누어 연산 후 Concat (Mix-CFN)
+    - $\hat{F_1}=\mathrm{DWConv}_{3\times3}(\hat{F}_{C/2}), \hat{F_2}=\mathrm{DWConv}_{5\times5}(\hat{F}_{C/2})$
+    - $\hat{F_C}=\mathrm{Conv}_{1\times1}(\mathrm{Concat}(\hat{F_1},\hat{F_2}))$
+- Batch-Normalization 추가
+
+
+### 5. Decode Head
+
+<img src="https://user-images.githubusercontent.com/25689849/217508282-bb070e23-280f-4268-a2cc-2d7021c2eab7.svg">
+
+- Stage Features Upsample
+    - $\hat{F}_i=\mathrm{Upsample}(\mathrm{MLP}(F_{in}))$
+- **Weighted Sum 적용**
+    - $\hat{F}=\sum^3_{i=0}(w_i\hat{F_i})$
+
+---
+
 ## 📰 **Result**
 
-![result graph](https://user-images.githubusercontent.com/25689849/217489238-0ca18321-3e7a-4bd3-90aa-51bd052d1e83.svg)
+![result graph](https://user-images.githubusercontent.com/25689849/217506475-2bd67040-3f76-4d52-b61d-024bf880c99f.svg)
 
 | model  | Params| Flops | Acc<sub>val<sup> (%) | mIoU<sub>val<sup> (%) |
-| ------------- | -------------------- | ----------------------- | ---------------------- | ----------------------- |
+| :-------------: | :--------------------: | :-----------------------: | :----------------------: | :-----------------------: |
 |SegFormer-B2|27.462M|58.576G|66.48|29.84|
-|BoostFormer (Ours)|17.575M|15.826G|72.28|34.29|
+|**BoostFormer</br>(Ours)**|**17.575M</br>(-36.00%)**|**15.826G</br>(-72.98%)**|**72.28</br>(+8.72%)**|**34.29</br>(+14.91%)**|
 
+
+- **기존 모델 대비 Params 36% 감소, FLOPs 72% 감소, mIoU 성능 14% 향상**
+<br/><br/>
+---
 ## 📰 **Directory Structure**
 
 ```
