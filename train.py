@@ -12,7 +12,7 @@ from tqdm.auto import tqdm
 from util.logger import set_logger
 from util.data import generate_loader
 from util.utils import label_accuracy_score, add_hist
-from custom import SegformerForSemanticSegmentation, SegformerConfig
+from boostformer import SegformerForSemanticSegmentation, SegformerConfig
 from transformers.optimization import get_polynomial_decay_schedule_with_warmup
 
 

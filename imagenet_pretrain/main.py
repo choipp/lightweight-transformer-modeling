@@ -19,7 +19,7 @@ from timm.scheduler import create_scheduler
 from timm.optim import create_optimizer
 from timm.utils import NativeScaler, get_state_dict, ModelEma
 sys.path.append('/opt/ml/input/final_project_level3-cv-16/')
-from custom import SegformerForImageClassification, SegformerConfig
+from boostformer import SegformerForImageClassification, SegformerConfig
 from datasets import build_dataset
 from engine import train_one_epoch, evaluate
 from losses import DistillationLoss
