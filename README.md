@@ -182,7 +182,7 @@ git clone https://github.com/boostcampaitech4lv23cv3/final-project-level3-cv-16.
 ```
 
 ## 🧰 **How to Use**
-### tiny_imagenet Pretraining
+### Pretraining (tiny_imagenet)
 ```bash
 bash dist_train.sh {사용하는 gpu 개수} \
     --data-path {tiny_imagenet path} \ # 이름에 tiny가 포함되어야함
@@ -207,14 +207,14 @@ python train.py \
     --batch_size {batch size} # default=16
 ```
 
-### evaluate 수행
+### Evaluation 수행
 ```bash
 # phase를 통해 val 또는 test set 설정
 python eval.py \ # eval.py 내의 model을 정의하는 코드 수정
     --data_dir {ADE20K의 path} \
     --pretrain {pretrain 모델 dir의 path}
 ```
-### FLOPs, 파라미터 개수 확인
+### Params, FLOPs 확인
 ```bash
 python util/get_flops_params.py \ # get_flops_params.py 내의 model을 정의하는 코드 수정
     --data_dir {ADE20K의 path}
