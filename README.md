@@ -68,7 +68,7 @@
 
 ## 📰 **Base Model**
 
-![boostformer](https://user-images.githubusercontent.com/113173095/217485570-003dd0a5-6f0d-4195-8e73-c9ca64f57e02.png)
+![Segformer](https://user-images.githubusercontent.com/25689849/217527787-be5e3a78-0986-4b83-9ec6-85ce65bb4562.svg)
 <!-- <img src="https://user-images.githubusercontent.com/113173095/217485570-003dd0a5-6f0d-4195-8e73-c9ca64f57e02.png" width="400" height="300"> -->
 
 ### Encoder
@@ -87,7 +87,7 @@
 
 ## 📰 **BoostFormer(Ours)**
 
-![boostformer](https://user-images.githubusercontent.com/25689849/217509565-2eeb5955-7ef1-4352-9cf8-6df0776d0228.svg)
+![boostformer](https://user-images.githubusercontent.com/25689849/217526183-bdfe4c9f-a497-4cde-9dcb-5e00d8dfba11.svg)
 
 ### Encoder
 
