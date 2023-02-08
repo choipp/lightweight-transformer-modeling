@@ -174,6 +174,53 @@
 - **기존 모델 대비 Params 36% 감소, FLOPs 72% 감소, mIoU 성능 14% 향상**
 <br/><br/>
 ---
+
+## ⚙️ **Installation**
+
+```bash
+git clone https://github.com/boostcampaitech4lv23cv3/final-project-level3-cv-16.git
+```
+
+## 🧰 **How to Use**
+### tiny_imagenet Pretraining
+```bash
+bash dist_train.sh {사용하는 gpu 개수} \
+    --data-path {tiny_imagenet path} \ # 이름에 tiny가 포함되어야함
+    --output_dir {save dir path} \
+    --batch-size {batch size per gpu } # default=128
+
+# example
+bash dist_train.sh 4 \
+    --data-path /workspace/dataset/tiny_imagenet \
+    --output_dir result/mod_segformer/ \
+    --batch-size 64
+
+```
+### ADE20K fine-tuning
+```bash
+# 현재 디렉토리: /final-project-level3-cv-16
+python train.py \
+    --data_dir {ADE20K의 path} \
+    --device 0,1,2,3 \ # 환경에 맞게 수정 
+    --save_path {save하고자 하는 dir의 path} \ 
+    --pretrain {pretrain 모델 dir 혹은 .pth의 path} # .pth(pretrain의 output), dir(huggingface의 모델허브에서 제공하는 형태)
+    --batch_size {batch size} # default=16
+```
+
+### evaluate 수행
+```bash
+# phase를 통해 val 또는 test set 설정
+python eval.py \ # eval.py 내의 model을 정의하는 코드 수정
+    --data_dir {ADE20K의 path} \
+    --pretrain {pretrain 모델 dir의 path}
+```
+### FLOPs, 파라미터 개수 확인
+```bash
+python util/get_flops_params.py \ # get_flops_params.py 내의 model을 정의하는 코드 수정
+    --data_dir {ADE20K의 path}
+```
+
+---
 ## 📰 **Directory Structure**
 
 ```
