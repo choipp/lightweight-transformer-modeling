@@ -173,7 +173,12 @@
 
 - **기존 모델 대비 Params 36% 감소, FLOPs 72% 감소, mIoU 성능 14% 향상**
 <br/><br/>
+
+## 📰 **NVIDIA Jetson Nano Time Comparision**
+![image](https://user-images.githubusercontent.com/46767966/217690482-3b59d38a-c3c1-47c3-b274-436d75efed73.png)
+
 ---
+
 
 ## ⚙️ **Installation**
 
