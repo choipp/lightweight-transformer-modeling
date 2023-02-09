@@ -176,7 +176,7 @@
 
 
 ## 📰 **NVIDIA Jetson Nano Time Comparision**
-![image](https://user-images.githubusercontent.com/46767966/217690482-3b59d38a-c3c1-47c3-b274-436d75efed73.png)
+![image](https://user-images.githubusercontent.com/103131249/217698136-70bf4eaf-2709-4689-a0ac-9f6642b83868.png)
 
 ---
 
