@@ -1,4 +1,4 @@
-# **SegFormer 모델 구조변경 · 레이어 재설계**
+# **BoostFormer**
 
 ![Main](https://user-images.githubusercontent.com/103131249/217564941-4a04a02f-57fe-4a85-9cdc-6ff287687cba.png)
 
@@ -77,7 +77,7 @@
 ---
 
 ## 📰 **BoostFormer(Ours)**
-![boostformer](https://user-images.githubusercontent.com/70796031/217601448-a6897060-094a-409c-b654-c03e98021d45.svg)
+![boostformer](https://user-images.githubusercontent.com/70796031/217690146-e7e226df-4a8b-4d99-a1b6-d5d7f3517d9f.png)
 
 |Encoder|Decoder|
 |:---:|:---:|
@@ -163,6 +163,8 @@
 | :-------------: | :--------------------: | :-----------------------: | :----------------------: | :-----------------------: |
 |SegFormer-B2|27.462M|58.576G|66.48|29.84|
 |**BoostFormer</br>(Ours)**|**17.575M</br>(-36.00%)**|**15.826G</br>(-72.98%)**|**72.28</br>(+8.72%)**|**34.29</br>(+14.91%)**|
+- **기존 모델 대비 Params 36% 감소, FLOPs 72% 감소, mIoU 성능 14% 향상**
+<br/><br/>
 
 ---
 ## 📰 **Qualitative results on ADE20K**
@@ -171,9 +173,13 @@
 ## 📰 **Mobile Inference Time Comparison**
 ![image](https://user-images.githubusercontent.com/103131249/217567804-d8c6cde7-f991-4039-a409-2783600f0a33.png)
 
-- **기존 모델 대비 Params 36% 감소, FLOPs 72% 감소, mIoU 성능 14% 향상**
-<br/><br/>
+
+
+## 📰 **NVIDIA Jetson Nano Time Comparision**
+![image](https://user-images.githubusercontent.com/46767966/217690482-3b59d38a-c3c1-47c3-b274-436d75efed73.png)
+
 ---
+
 
 ## ⚙️ **Installation**
 
